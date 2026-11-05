@@ -9,6 +9,8 @@ var overlay: Node2D
 var status := "starting"
 var rendered_frames := 0
 var headless_frames := 0
+var warm_pixel_probe: Dictionary = {}
+var _handoff_render_pending := false
 var entry_position := Vector2.ZERO
 var entry_zoom := 0.35
 var route := ""
@@ -35,6 +37,8 @@ var display_budget := preload("res://scripts/rendering/tokyo_hlod_cache_policy.g
 var cache_pool_limit := 96*1024*1024
 var resident_foundation := false
 var _memory_check_clock := 0.0
+var _source_task := -1
+var _source_job: Dictionary={}
 
 
 static func script_path() -> String:
@@ -75,7 +79,7 @@ static func start(owner_node: Node, position: Vector2 = Vector2.INF, zoom: float
 	session.hlod_package = Installed.package_path()
 	session.hlod_package_sha = Installed.package_sha()
 	session.resident_middle = OS.get_environment("AGL_TOKYO_RESIDENT_MIDDLE")=="1"
-	session.resident_foundation = OS.get_environment("AGL_TOKYO_RESIDENT_FOUNDATION")=="1"
+	session.resident_foundation = preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_RESIDENT_FOUNDATION")=="1"
 	session.resident_pool_only = OS.get_environment("AGL_TOKYO_RESIDENCY_POOL_ONLY")=="1"
 	session.small_uploads = OS.get_environment("AGL_TOKYO_SMALL_UPLOADS")=="1"
 	session.cache_pool_limit = preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").candidate_limit()
@@ -91,7 +95,7 @@ static func take(source: Node2D, camera: Camera2D) -> Node2D:
 					and session.hlod_package == Installed.package_path() \
 					and session.hlod_package_sha == Installed.package_sha() \
 					and session.resident_middle == (OS.get_environment("AGL_TOKYO_RESIDENT_MIDDLE")=="1") \
-					and session.resident_foundation == (OS.get_environment("AGL_TOKYO_RESIDENT_FOUNDATION")=="1") \
+					and session.resident_foundation == (preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_RESIDENT_FOUNDATION")=="1") \
 					and session.resident_pool_only == (OS.get_environment("AGL_TOKYO_RESIDENCY_POOL_ONLY")=="1") \
 					and session.small_uploads == (OS.get_environment("AGL_TOKYO_SMALL_UPLOADS")=="1") \
 					and session.display_budget == preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").display_limit() \
@@ -113,13 +117,21 @@ static func take(source: Node2D, camera: Camera2D) -> Node2D:
 func _begin() -> void:
 	# 先跨过上一预热拥有者的queue_free，不能让两份预加载同时占用预算。
 	await get_tree().process_frame
+	# 旧会话取消后仍可能正在准备纯数据；新会话等待它收尾，界面继续刷新。
+	while true:
+		var previous_busy := preload("res://scripts/rendering/tokyo_metadata_retirement.gd").pending(get_tree())
+		for previous: Node in get_tree().get_nodes_in_group(GROUP):
+			if previous!=self and previous._source_task>=0: previous_busy=true;break
+		if not previous_busy: break
+		if status=="cancelled": return
+		await get_tree().process_frame
 	if hlod_package!=Installed.package_path() or hlod_package_sha!=Installed.package_sha():
 		cancel()
 		return
 	if display_budget!=preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").display_limit() or cache_pool_limit!=preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").candidate_limit():
 		cancel()
 		return
-	if resident_foundation!=(OS.get_environment("AGL_TOKYO_RESIDENT_FOUNDATION")=="1") \
+	if resident_foundation!=(preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_RESIDENT_FOUNDATION")=="1") \
 		or resident_middle!=(OS.get_environment("AGL_TOKYO_RESIDENT_MIDDLE")=="1") \
 		or resident_pool_only!=(OS.get_environment("AGL_TOKYO_RESIDENCY_POOL_ONLY")=="1") \
 		or small_uploads!=(OS.get_environment("AGL_TOKYO_SMALL_UPLOADS")=="1"):
@@ -171,10 +183,53 @@ func _begin() -> void:
 	overlay.name = "TokyoVolumeMap"
 	if overlay is HLOD:
 		overlay.loading_neighborhood_on_setup=cache_pool_limit>96*1024*1024
+	if overlay is HLOD and Installed.motion_admission_enabled("AGL_TOKYO_BACKGROUND_SOURCE"):
+		var preparing := overlay
+		overlay=null
+		if not _start_source_preparation(preparing): cancel()
+		return
+	_finish_begin(overlay)
+
+
+func _start_source_preparation(preparing: Node2D) -> bool:
+	if _source_task>=0 or not is_instance_valid(preparing) or preparing.is_inside_tree(): return false
+	_source_job={"overlay":preparing,"success":false}
+	status="preparing"
+	_source_task=WorkerThreadPool.add_task(_prepare_source.bind(_source_job),false,"Tokyo map source")
+	if _source_task<0:
+		preparing.free();_source_job={};return false
+	set_process(true)
+	return true
+
+
+static func _prepare_source(job: Dictionary) -> void:
+	# job及未入树实例由本任务独占，主线程只在完成后读取；没有活动SceneTree操作。
+	job.success=job.overlay.prepare_background_source()
+
+
+func _collect_source_preparation() -> void:
+	if _source_task<0 or not WorkerThreadPool.is_task_completed(_source_task): return
+	WorkerThreadPool.wait_for_task_completion(_source_task)
+	_source_task=-1
+	var prepared: Node2D=_source_job.overlay
+	var success: bool=_source_job.success
+	_source_job={}
+	if status=="cancelled" or not success:
+		prepared.free()
+		cancel();queue_free();return
+	_finish_begin(prepared)
+
+
+func _finish_begin(prepared: Node2D) -> void:
+	overlay=prepared
+	var source := _stage.get_child(0) as Node2D
+	var camera := _stage.get_child(1) as Camera2D
 	add_child(overlay)
 	if not overlay.setup(source, camera):
 		cancel()
 		return
+	# 同步目录验证与规划快照尚未开始流送，不能消耗后续异步加载的超时窗口。
+	_deadline = Time.get_ticks_msec() + TIMEOUT_MS
 	if overlay is HLOD:
 		# setup验证包后才知道近景资格；首个process前保留真实出生尺度或旧包预热范围。
 		camera.zoom=Vector2.ONE*clampf(camera.zoom.x,0.0973,overlay.preload_max_scale)
@@ -231,11 +286,27 @@ static func state_ready(state: Dictionary) -> bool:
 func _after_draw() -> void:
 	if status == "warming":
 		rendered_frames += 1
+		if rendered_frames == 2 and OS.get_environment("AGL_TOKYO_ENTRY_BURST") == "1" \
+				and is_instance_valid(overlay) and is_instance_valid(overlay._viewport):
+			var image: Image = overlay._viewport.get_texture().get_image()
+			if image != null and not image.is_empty():
+				var center := image.get_pixelv(Vector2i(image.get_width() / 2, image.get_height() / 2))
+				warm_pixel_probe = {"size": [image.get_width(), image.get_height()],
+					"center_alpha": center.a, "center_rgb": [center.r, center.g, center.b]}
 		if not shoreline_directory.is_empty() and is_instance_valid(overlay):
 			overlay._shoreline.warm_draw()
+	if _handoff_render_pending:
+		_handoff_render_pending = false
+		if is_instance_valid(overlay):
+			overlay.set_process(true)
+		if RenderingServer.frame_post_draw.is_connected(_after_draw):
+			RenderingServer.frame_post_draw.disconnect(_after_draw)
 
 
 func _process(delta: float) -> void:
+	if _source_task>=0:
+		_collect_source_preparation()
+		return
 	if status in ["loading","warming"] and cache_pool_limit==preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").COMPLETE_POOL:
 		_memory_check_clock-=delta
 		if _memory_check_clock<=0.0:
@@ -307,6 +378,7 @@ func _claim(source: Node2D, camera: Camera2D) -> Node2D:
 	battle_ref = weakref(source)
 	overlay._source_ref = weakref(source)
 	overlay._camera_ref = weakref(camera)
+	if overlay.has_method("camera_motion_ready"): camera.set_meta(&"map_motion_guard",weakref(overlay))
 	source.tree_exiting.connect(cancel, CONNECT_ONE_SHOT)
 	source.visibility_changed.connect(_visibility_changed)
 	_stage.queue_free()
@@ -314,7 +386,8 @@ func _claim(source: Node2D, camera: Camera2D) -> Node2D:
 	status = "retained"
 	_clock = 0.0
 	set_process(true)
-	if _intersects(source):
+	var intersects := _intersects(source)
+	if intersects:
 		_activate()
 	return overlay
 
@@ -331,9 +404,20 @@ func _intersects(source: Node2D) -> bool:
 
 func _activate() -> void:
 	status = "claimed"
-	overlay._active = false
-	overlay.set_process(true)
-	overlay._process(0.0)
+	# 首个战场画面复用已预热的有效切面；等主视口先呈现这一帧，再允许相机改变触发重绘。
+	var state: Dictionary = overlay.debug_state() if is_instance_valid(overlay) else {}
+	var warm_display := DisplayServer.get_name() != "headless" \
+		and bool(state.get("active", false)) and bool(state.get("display_qualified", false)) \
+		and bool(state.get("display_covered", false)) and int(state.get("ready_cells", 0)) > 0
+	if warm_display and is_instance_valid(overlay._screen):
+		overlay._screen.show()
+		overlay.set_process(false)
+		_handoff_render_pending = true
+		if not RenderingServer.frame_post_draw.is_connected(_after_draw):
+			RenderingServer.frame_post_draw.connect(_after_draw)
+	else:
+		overlay.set_process(true)
+		overlay._process(0.0)
 	set_process(false)
 
 
@@ -357,6 +441,10 @@ func cancel() -> void:
 	if status == "cancelled":
 		return
 	status = "cancelled"
+	# 用户返回菜单不等待后台纯数据工作；会话留在根节点收尾，完成后销毁半成品。
+	if _source_task>=0:
+		set_process(true)
+		return
 	set_process(false)
 	if is_instance_valid(overlay):
 		overlay._deactivate()
@@ -365,6 +453,13 @@ func cancel() -> void:
 
 
 func _exit_tree() -> void:
+	# 引擎整体退出时仍需回收唯一任务，不能在数据准备途中释放独占实例。
+	if _source_task>=0:
+		WorkerThreadPool.wait_for_task_completion(_source_task)
+		_source_task=-1
+		var prepared: Node2D=_source_job.overlay
+		_source_job={}
+		prepared.free()
 	if RenderingServer.frame_post_draw.is_connected(_after_draw):
 		RenderingServer.frame_post_draw.disconnect(_after_draw)
 
@@ -377,9 +472,11 @@ func progress() -> float:
 	if is_instance_valid(overlay):
 		var state: Dictionary = overlay.debug_state()
 		if state.has("stream"):
-			var paths: PackedStringArray = overlay._stream._wanted
+			var stream: Variant=overlay.get("_stream")
+			if typeof(stream)!=TYPE_OBJECT or not is_instance_valid(stream): return 0.0
+			var paths: PackedStringArray = stream._wanted
 			var ready := 0
 			for path: String in paths:
-				ready += int(overlay._stream.resource(path) != null)
+				ready += int(stream.resource(path) != null)
 			return 0.9 * float(ready) / maxi(1, paths.size())
 	return 0.0

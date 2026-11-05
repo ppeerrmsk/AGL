@@ -257,7 +257,7 @@ METASHOP_ITEM_J35F_DESC,永久加入可选起手机名单；宽锥三角翼路�
 METASHOP_ITEM_EA6B_NAME,EA-6B 采购案,EA-6B Procurement,EA-6B 調達計画
 METASHOP_ITEM_EA6B_DESC,永久加入可选起手机名单；高耐久电子支援路线。,Permanently adds the durable electronic-support route to the starting roster.,高耐久電子支援系統を初期選択へ恒久追加。
 METASHOP_ITEM_DOCK_WINGMAN_NAME,停靠补给僚机,Docking Wingman Resupply,着艦補給ウィングマン
-METASHOP_ITEM_DOCK_WINGMAN_DESC,每次在机场或航母停靠，补给 1 架同型僚机入队,Each airfield or carrier docking grants +1 wingman,飛行場・空母に着くたび僚機 1 機を補充
+METASHOP_ITEM_DOCK_WINGMAN_DESC,停靠时可选择增加 1 架同型僚机，放弃本次进化、维修与专属技能,"At each stop choose +1 wingman instead of evolution, repair and a signature",停機時に同型僚機1機を選択可能。その回の進化・修理・専用スキルを放棄
 METASHOP_ITEM_OP_TIME_NAME,行动时间延长,Extended Operation Time,作戦時間延長
 METASHOP_ITEM_OP_TIME_DESC,战区阶段总时长 +30 秒,Warzone phase duration +30 seconds,戦域フェーズ +30 秒
 METASHOP_LOCKED_HINT_DOCK_WINGMAN,首次在机场停靠后上架,Listed after your first airfield docking,初の飛行場着陸後に入荷

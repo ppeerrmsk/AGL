@@ -28,6 +28,7 @@ var _last_size := Vector2.ZERO
 var _active := false
 var _lod_clock := 0.0
 var _enabled := true
+var _exact_canvas_tracking := false
 var redraws := 0
 var lod_switches := 0
 var max_transition_triangles := 0
@@ -180,7 +181,9 @@ func _process_map(delta: float) -> void:
 		view_bounds = Rect2(inverse * Vector2.ZERO, Vector2.ZERO)
 		for corner: Vector2 in [Vector2(logical.x, 0), logical, Vector2(0, logical.y)]:
 			view_bounds = view_bounds.expand(inverse * corner)
-	var changed := not _active or not canvas.is_equal_approx(_last_canvas) or output != _last_size
+	# 大世界坐标的相对 epsilon 可吞掉半个屏幕像素；候选合成层须同步真实微小机位变化。
+	var pose_changed := canvas!=_last_canvas if _exact_canvas_tracking else not canvas.is_equal_approx(_last_canvas)
+	var changed := not _active or pose_changed or output != _last_size
 	_active = not prewarming
 	_screen.visible = not prewarming
 	_lod_clock -= delta
@@ -212,13 +215,17 @@ func _process_map(delta: float) -> void:
 		changed = true
 	if trace:
 		PerfBuckets.tick("tokyo_map_geometry", Time.get_ticks_usec() - geometry_start)
-	if changed:
+	if changed and _geometry_can_draw():
 		var submit_start := Time.get_ticks_usec() if trace else 0
 		_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 		redraws += 1
 		if trace:
 			# 这里只量 CPU 更新请求，不冒充 GPU 完成时间；不加同步等待。
 			PerfBuckets.tick("tokyo_map_update_request", Time.get_ticks_usec() - submit_start)
+
+
+func _geometry_can_draw() -> bool:
+	return true
 
 
 func _configure_camera_depth(_camera_basis: Basis) -> void:

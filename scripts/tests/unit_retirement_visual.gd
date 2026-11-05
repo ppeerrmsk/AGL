@@ -145,7 +145,7 @@ func _finish_retirement_visual() -> void:
 	output.store_string("\n".join(_retire_report))
 	output.store_string("\n" + PerfBuckets.format_frame_trace_dump())
 	output.store_string("\n" + PerfBuckets.format_full_dump())
-	get_tree().quit(0 if _retire_fail == 0 else 1)
+	AudioManager.request_quit(0 if _retire_fail == 0 else 1)
 
 func _check_retained_roster() -> void:
 	var ground_ok := _retire_ground.size() == 48

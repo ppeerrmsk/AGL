@@ -86,6 +86,15 @@ var _redraw_accum: float = REDRAW_INTERVAL
 var _sprites: Array = []  ## Array[ImageTexture] — 烘焙好的云贴图
 var presentation_revision := 0
 
+# 云空间固定列段：只缓存值，不持有纹理或宿主；漂移/镜头仍在每次正式重绘时求值。
+# 跳过空格的重复噪声计算，保留 x→y 原顺序，不能按贴图分组改变透明叠加。
+const CLOUD_COLUMN_CELLS := 32
+const MAX_CLOUD_COLUMNS := 512
+var _cloud_columns: Dictionary = {}
+var _cloud_column_keys: Array[Vector2i] = []
+var _cloud_column_cursor := 0
+var _cloud_cache_signature: Array = []
+
 ## 初始化：注入相机、生成噪声、烘焙贴图
 func setup(p_camera: Camera2D, deterministic_seed: int = 0) -> void:
 	camera = p_camera
@@ -103,6 +112,10 @@ func setup(p_camera: Camera2D, deterministic_seed: int = 0) -> void:
 
 func _init_noise() -> void:
 	presentation_revision += 1
+	_cloud_columns.clear()
+	_cloud_column_keys.clear()
+	_cloud_column_cursor = 0
+	_cloud_cache_signature.clear()
 	_noise = FastNoiseLite.new()
 	_noise.seed = cloud_seed
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -392,16 +405,52 @@ func _draw_weather_untraced() -> void:
 	var end_x := cloud_right + margin
 	var end_y := cloud_bot + margin
 
-	var cx := start_x
-	while cx <= end_x:
-		var cy := start_y
-		while cy <= end_y:
-			var density := _cloud_density_at(cx, cy)
-			if density > MIN_DENSITY:
-				_draw_sprite_at(Vector2(cx, cy), offset, density)
-			cy += SPRITE_SPACING
-		cx += SPRITE_SPACING
+	_prepare_cloud_columns()
+	var first_column := roundi(start_x / SPRITE_SPACING)
+	var last_column := floori(end_x / SPRITE_SPACING)
+	var first_chunk := floori(start_y / (SPRITE_SPACING * CLOUD_COLUMN_CELLS))
+	var last_chunk := floori(end_y / (SPRITE_SPACING * CLOUD_COLUMN_CELLS))
+	for column in range(first_column, last_column + 1):
+		for chunk in range(first_chunk, last_chunk + 1):
+			var cells := _cloud_column(Vector2i(column, chunk))
+			for index in range(0, cells.size(), 2):
+				var cy := cells[index]
+				if cy >= start_y and cy <= end_y:
+					_draw_sprite_at(Vector2(column * SPRITE_SPACING, cy), offset, cells[index + 1])
 	_draw_sandstorm(cam_pos, half)
+
+
+## 配置入口之外的运行时 coverage/mask 编辑也立即失效；不缓存战斗的任意位置查询。
+func _prepare_cloud_columns() -> void:
+	var signature := [presentation_revision, cloud_seed, cloud_coverage, cloud_secondary_mix, ugc_mask.duplicate()]
+	if signature == _cloud_cache_signature:
+		return
+	_cloud_cache_signature = signature
+	_cloud_columns.clear()
+	_cloud_column_keys.clear()
+	_cloud_column_cursor = 0
+
+
+## 一个 x 列内连续32格，保存原双精度 cy/density；空格也以空段缓存。环形逐段淘汰。
+func _cloud_column(key: Vector2i) -> PackedFloat64Array:
+	if _cloud_columns.has(key):
+		return _cloud_columns[key]
+	var cells := PackedFloat64Array()
+	var cx := key.x * SPRITE_SPACING
+	for row in range(key.y * CLOUD_COLUMN_CELLS, (key.y + 1) * CLOUD_COLUMN_CELLS):
+		var cy := row * SPRITE_SPACING
+		var density := _cloud_density_at(cx, cy)
+		if density > MIN_DENSITY:
+			cells.append(cy)
+			cells.append(density)
+	if _cloud_column_keys.size() < MAX_CLOUD_COLUMNS:
+		_cloud_column_keys.append(key)
+	else:
+		_cloud_columns.erase(_cloud_column_keys[_cloud_column_cursor])
+		_cloud_column_keys[_cloud_column_cursor] = key
+		_cloud_column_cursor = (_cloud_column_cursor + 1) % MAX_CLOUD_COLUMNS
+	_cloud_columns[key] = cells
+	return cells
 
 
 ## 沙尘暴使用现实气象观测图的抽象语法：淡色沙带 + 平行流线 + 锋面符号 + 观测点阵。

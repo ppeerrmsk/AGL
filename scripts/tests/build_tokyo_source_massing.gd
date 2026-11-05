@@ -15,13 +15,14 @@ const Save := preload("res://scripts/tests/build_tokyo_lossless_leaf_partitions.
 static func split_depth(input: Dictionary) -> int:
 	var value: Variant=input.get("split_depth",2)
 	if not preload("res://scripts/rendering/tokyo_hlod_manifest.gd").integer(value): return -1
-	return int(value) if int(value) in [1,2,3,4] else -1
+	return int(value) if int(value)>=1 and int(value)<=10 else -1
 
 
 static func run(input: Dictionary, digest: String) -> int:
 	# 完整来源可能大于原来的单叶；允许恢复合适的离线粒度，不放宽显示门。
 	var depth := split_depth(input)
 	if depth<0: return 1
+	if not input.get("defer_spatial_validation",false) is bool: return 1
 	var package := Override.json_binding(input.get("source_massing_package"))
 	var batch := Override.json_binding(input.get("candidates"))
 	var exported := Override.json_binding(batch.get("source_report"))
@@ -37,6 +38,10 @@ static func run(input: Dictionary, digest: String) -> int:
 	var prior: Dictionary=package.native.get("partition_override",{})
 	var attachment := Override.json_binding(prior.get("input"))
 	var proof := Override.json_binding(prior.get("proof"))
+	# main 原 M20 尚无分区附件；只允许从确实不存在的附件开始，损坏附件仍拒绝。
+	if not package.native.has("partition_override"):
+		attachment={"attachments":[]}
+		proof={"catalog_sha256":native.catalog_sha,"rows":[],"runtime_integrated":false}
 	if attachment.is_empty() or proof.is_empty() or exported.catalog_sha256!=native.catalog_sha: return 1
 	if DirAccess.make_dir_recursive_absolute(output)!=OK: return 1
 	var saved_faces := 0
@@ -44,6 +49,8 @@ static func run(input: Dictionary, digest: String) -> int:
 	var seen: Dictionary={}
 	for index in batch.rows.size():
 		var request: Dictionary=batch.rows[index]
+		var source_depth := split_depth({"split_depth":request.get("split_depth",depth)})
+		if source_depth<0 or source_depth>depth: return 1
 		var source: Dictionary=request.source
 		if source!=exported.rows[index] or source.get("no_game_sources")!=true or source.get("current_tree_unchanged")!=true: return 1
 		var configuration: String=source.configuration
@@ -60,16 +67,16 @@ static func run(input: Dictionary, digest: String) -> int:
 		if Override.json_binding(plan).is_empty(): return 1
 		if candidate.is_empty() or candidate.get("source",{}).get("sha256")!=source.exports[1].sha256 \
 			or candidate.get("plan",{})!=plan \
-			or candidate.get("producer_sha256")!=batch.producer_sha256 \
+			or candidate.get("producer_sha256")!=request.get("producer_sha256",batch.producer_sha256) \
 			or candidate.get("formal_footprints_excluded")!=true or candidate.get("high_buildings_unchanged")!=true: return 1
 		var partition_plan: Dictionary={}
 		if request.has("partition_plan"):
 			partition_plan=Override.json_binding(request.partition_plan)
-			if partition_plan.get("schema")!=1 or partition_plan.get("split_depth")!=depth \
+			if partition_plan.get("schema")!=1 or partition_plan.get("split_depth")!=source_depth \
 				or partition_plan.get("candidate_sha256")!=request.candidate.sha256 \
 				or partition_plan.get("tree_sha256")!=source.tree_sha256 \
 				or not partition_plan.get("cuts") is Dictionary \
-				or partition_plan.cuts.size()!=(1<<depth)-1: return 1
+				or partition_plan.cuts.size()!=(1<<source_depth)-1: return 1
 		var row: Dictionary=native.pages[source.target]
 		var original_meshes := Boundary.meshes(row,row.components)
 		if original_meshes.size()!=3: return 1
@@ -94,8 +101,9 @@ static func run(input: Dictionary, digest: String) -> int:
 		var splitter := preload("res://scripts/tests/tokyo_native_refinement_probe.gd").new()
 		splitter.branching=2;splitter.page_sink=writer.emit
 		splitter.split_plan=partition_plan.get("cuts",{})
-		var tree := splitter._split(seed,meshes,depth)
-		if splitter.failed or splitter.conserved_splits!=3*((1<<depth)-1): return 1
+		var tree := splitter._split(seed,meshes,source_depth)
+		# 面积分桶可以提前产生空叶，以实际保存树核对每次三层守恒。
+		if splitter.failed or writer.pages.size()<3 or splitter.conserved_splits!=3*((writer.pages.size()-1)/2): return 1
 		var binding := writer.finish(tree,digest)
 		if binding.is_empty(): return 1
 		binding.configuration=configuration
@@ -121,7 +129,7 @@ static func run(input: Dictionary, digest: String) -> int:
 		var evidence := {"configuration":configuration,"target":source.target,"identity":source.identity,
 			"tree_sha256":source.tree_sha256,"original_layers_equal":matches,"untouched_layers_equal":[true,true],
 			"no_game_sources":true,"conserved_splits":splitter.conserved_splits,"candidate":request.candidate,
-			"faces_saved":candidate.faces_saved,"retained_channels_verified":true,"split_depth":depth}
+			"faces_saved":candidate.faces_saved,"retained_channels_verified":true,"split_depth":source_depth}
 		if request.has("partition_plan"): evidence["partition_plan"]=request.partition_plan
 		proof.rows.append(evidence);new_rows.append(evidence);saved_faces+=int(candidate.faces_saved)
 		print("[source massing] ",configuration," cell=",source.identity.cell," saved=",candidate.faces_saved)
@@ -137,14 +145,19 @@ static func run(input: Dictionary, digest: String) -> int:
 	var verified := preload("res://scripts/rendering/tokyo_hlod_native.gd").new()
 	if not verified.read(package.native): return 1
 	var cuts: Dictionary={}
+	var failed_cuts := 0
 	for configuration in ["lod4_full","lod5_full"]:
 		cuts[configuration]=Attach.cuts(verified._partition_roots[configuration],poses.poses,"")
 		for cut: Dictionary in cuts[configuration]:
 			cut.erase("new_pages")
 			if not cut.within_budget:
-				print("[source massing] cost rejected ",cut);return 1
+				failed_cuts+=1
+	# 多阶段离线构建可把尚待相邻来源分包的中间产物交给下一构建器；不冒充验收。
+	if failed_cuts>0 and not input.get("defer_spatial_validation",false):
+		print("[source massing] rejected cuts=",failed_cuts);return 1
 	var package_binding := Save.save_json(output.path_join("package.json"),package)
 	if package_binding.is_empty(): return 1
 	return 0 if not Save.save_json(output.path_join("report.json"),{"input_sha256":digest,"new_sources":new_rows,
 		"faces_saved_across_lods":saved_faces,"cuts":cuts,"package":package_binding,"runtime_verified":false,
+		"failed_cuts":failed_cuts,"spatial_accepted":failed_cuts==0,
 		"visual_accepted":false,"performance_accepted":false}).is_empty() else 1

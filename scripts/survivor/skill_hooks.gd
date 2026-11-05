@@ -67,6 +67,8 @@ static var sig_fcas_active: bool = false
 static var sig_f35_active: bool = false
 ## 鲸群（X-90 sig_x90，同上账本位）：血量共享光环
 static var sig_x90_active: bool = false
+## 入侵算法：从队级技能账本同步，覆盖主机与僚机。
+static var invasion_algorithm_active: bool = false
 ## 嘘！（squad_once）：JAM 敌机不能放热诱弹，其已发/新发导弹立即失去制导。
 static var hush_active: bool = false
 
@@ -525,6 +527,21 @@ static func on_flare_release(ac: Aircraft) -> void:
 		ac.apply_status(StatusEffects.OVERLOAD, FLARE_OVERLOAD_DURATION)
 
 
+## 入侵算法只检查此次真正收到 JAM 的目标。经验与击杀归属沿用正常死亡管线。
+static func on_jam_target_hit(source: Aircraft, target: CombatUnit) -> void:
+	if not invasion_algorithm_active or not source.is_player_squad() or not target is Aircraft:
+		return
+	var drone := target as Aircraft
+	if drone.is_destroyed or not source.is_hostile_to(drone) or drone.sig_status_immune \
+			or not drone.has_status(StatusEffects.JAM) or drone.params == null:
+		return
+	if drone.params.display_name not in ["MQ-109", "MQ-110", "MQ-111", "MQ-112"]:
+		return
+	drone.take_damage(drone.hp + 1000000.0, source, "jam_execute")
+	if drone.is_destroyed:
+		EventLogger.log_event("SKILL", source._log_name(), "入侵算法：%s JAM 后失控坠毁" % drone._log_name())
+
+
 ## ── JAM 命中钩子：玩家施加的 JAM 至少命中 1 个敌人 → 自身 OVERLOAD ──
 ## 各 JAM 来源（flare_aoe_jam / gun_kill_flare_drop / missile_hit_aoe_jam / torpedo_aoe_jam /
 ## jam_aura / head_on_jam / sig_rafale）——这份名单同时是 jam_self_overload 的 requires_skill，
@@ -540,20 +557,6 @@ static func on_player_jam_landed(player: Aircraft, hit_count: int) -> void:
 		return
 	if int(stacks.get(SKILL_JAM_SELF_OVERLOAD, 0)) > 0:
 		player.apply_status(StatusEffects.OVERLOAD, JAM_SELF_OVERLOAD_DURATION)
-	if int(stacks.get(SKILL_INVASION_ALGORITHM, 0)) > 0:
-		# 所有玩家 JAM 来源都会经过本钩子；低频触发时扫一遍静态单位表，
-		# 将已经真正进入 JAM 的 MQ-109~112 硬件平台击毁。no_kill_reward 仍由结算层兜底。
-		for u in CombatUnit.all_units.duplicate():
-			if not (u is Aircraft) or not is_instance_valid(u) or u.is_destroyed:
-				continue
-			if not player.is_hostile_to(u) or not u.has_status(StatusEffects.JAM):
-				continue
-			var tag: String = str(u.get_meta("enemy_type", ""))
-			if tag != "uav" and tag != "ucav" and tag != "uav_laser":
-				continue
-			u.take_damage(maxf(u.hp + 1000000.0, 1000000.0), player, "jam_execute")
-			EventLogger.log_event("SKILL", player._log_name(),
-				"入侵算法：%s JAM 后失控坠毁" % u._log_name())
 	if hush_active and player.missile_manager:
 		var jammed_missiles: int = 0
 		for child in player.missile_manager.get_children():

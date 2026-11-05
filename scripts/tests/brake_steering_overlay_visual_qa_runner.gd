@@ -25,7 +25,7 @@ func _ready() -> void:
 	var path := "res://bench/results/brake_steering_overlay_visual.png"
 	var err := get_viewport().get_texture().get_image().save_png(path)
 	print("[brake_steering_overlay_visual] screenshot=%s err=%d" % [path, err])
-	get_tree().quit(0 if err == OK else 1)
+	AudioManager.request_quit(0 if err == OK else 1)
 
 
 func _add_brake_aircraft() -> void:

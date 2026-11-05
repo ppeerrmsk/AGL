@@ -1,9 +1,9 @@
 ---
 id: wraith-squadron
 kind: boss
-status: done
+status: in-progress
 schema_version: 1
-spec_version: 10
+spec_version: 11
 owner: 用户（设计） / Claude（落地）
 depends_on: [ace-squadron-tier, circle-cut-entry, boss-clear-progression, enemy-sensor-stealth]
 reconstruction_complete: false
@@ -11,17 +11,17 @@ reconstruction_complete: false
 
 # WRAITH 中队（F-47 王牌狙击小队）
 
-> 四架幽灵一样的六代机。它们不跟你比谁转得快 —— 它们**逼你转弯，然后惩罚你转弯**。
+> 六架幽灵一样的六代机。它们不跟你比谁转得快 —— 它们**逼你转弯，然后惩罚你转弯**。
 > 你会一直觉得"再有一点点就赢了"，然后发现自己已经掉到 3000 米以下、没有能量、被两个方向夹住。
 
 ## 1. 设计意图（Why）
 
-**2026-09-27 已批准试装扩展**：玩家历史上击败 Wraith 三次后，从下一场起四架本体装配通用小队恐惧锥；0/1/2 次不装配，YF-23 支援不装配。独立强化装配层选择配置，正式接战后启动调度，释放者预警及照射期间保持可见，不改变 KNIGHT/SNIPER 角色与四相战术。范围、节拍、控制权、免疫和验收以 [玩家恐惧与可装配的小队恐惧锥](../systems/player-fear-wraith-cone.md) 为权威；这是独立招式扩展，不属于原执行失误调参。
+**2026-09-27 已批准试装扩展**：玩家历史上击败 Wraith 三次后，从下一场起六架本体装配通用小队恐惧锥；0/1/2 次不装配，YF-23 支援不装配。独立强化装配层选择配置，正式接战后启动调度，释放者预警及照射期间保持可见，不改变 KNIGHT/SNIPER 角色与四相战术。范围、节拍、控制权、免疫和验收以 [玩家恐惧与可装配的小队恐惧锥](../systems/player-fear-wraith-cone.md) 为权威；这是独立招式扩展，不属于原执行失误调参。
 
 ### 1.1 目标：本作最强敌人之一
 
 **"最强"不来自数值。**[ace-squadron-tier](../systems/ace-squadron-tier.md) 已经把这条钉死：
-王牌中队不堆血、不堆护甲、不做等级缩放。Wraith 的强度必须来自**四架飞机作为一个整体的协同**。
+王牌中队不堆血、不堆护甲、不做等级缩放。Wraith 的强度必须来自**六架飞机作为一个整体的协同**。
 
 具体来说，它强在四件事上：
 
@@ -39,7 +39,7 @@ reconstruction_complete: false
 
 - 玩家的胜利来自**抓住失误的瞬间**，而不是等 AI 犯傻
 - 强度可调：调失误幅度就能调难度，不用动战术层
-- 观感上"这是四个很强的飞行员"，而不是"这是四个机器人"
+- 观感上"这是六个很强的飞行员"，而不是"这是六个机器人"
 
 ### 1.3 Litmus 自检
 
@@ -57,18 +57,24 @@ reconstruction_complete: false
 
 ### 2.1 编制与角色
 
-四机菱形进入，**spawn 时静态分配角色，运行时不变**：
+六机三对展开进入，**spawn 时静态分配角色，运行时不变**：
 
 | # | 呼号 | 角色 | 主武器 | 职责 |
 |---|---|---|---|---|
 | 0 | WRAITH-01 | **KNIGHT**（骑士） | 机炮 | 长机。近距缠斗，逼玩家进入转弯 |
 | 1 | WRAITH-02 | **KNIGHT** | 机炮 | 同上；BRACKET 时默认担任 BAIT |
-| 2 | WRAITH-03 | **SNIPER**（狙击手） | 导弹 | 远距站位，惩罚玩家的每一次承诺 |
-| 3 | WRAITH-04 | **SNIPER** | 导弹 | 同上 |
+| 2 | WRAITH-03 | **KNIGHT** | 机炮 | 第二对近战骑士，扩大侧翼压迫 |
+| 3 | WRAITH-04 | **KNIGHT** | 机炮 | 同上 |
+| 4 | WRAITH-05 | **SNIPER**（狙击手） | 导弹 | 远距站位，惩罚玩家的每一次承诺 |
+| 5 | WRAITH-06 | **SNIPER** | 导弹 | 同上 |
 
 > ✅ 已落地（2026-07-22）：`AceSquad.AceRole { NONE, KNIGHT, SNIPER }` + `ROLE_META` +
 > `role_of()`。此前的 `combat_specialty`（只写不读）与 `f47_role`（只读不写）两个死 meta
 > 已删除；`is_boss_attacker()` 的兜底分支与 HUD 标签都改读真正被写入的角色字段。
+
+六机是所有历史层的固定本体编制：4 KNIGHT + 2 SNIPER。首败后仍追加两架 YF-23，合计八机；三败后仍只由同一个小队恐惧控制器调度，并发上限 1、冷却与解控保护不变。更高历史次数不再加机、加血或加火力。
+
+出生三对偏移（沿进场轴、横向，px）为 `(0,±180)`、`(-220,±300)`、`(-440,±420)`；六个槽位唯一。PERCH 扇面按存活人数在 ±60° 内对称展开，RESET 在每机背离方向 ±45° 内对称展开；单机取中心。既有四相时长与全队重整保持不变，本轮不引入轮换新机制。登场由六机双梯队飞行、交汇、散开并在 6.68s 内释放，详细时序见 [ui-transition](../systems/ui-transition.md)。
 
 ### 2.2 角色行为参数
 
@@ -129,7 +135,7 @@ tier 级铁律（`aggression ≥ 0.90`、`self_preservation ≤ 0.25`）直接�
 
 ### 2.6 通关强化支援
 
-历史击败数为 0 时仍为原四架 F-47。历史击败数 ≥1 时，在正式接战而非登场演出阶段追加两架
+历史击败数为 0 时仍为原六架 F-47。历史击败数 ≥1 时，在正式接战而非登场演出阶段追加两架
 YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、保持 4–6 km 距离带；不具备永久免锁，
 但启用传感器隐形，只有维持有效雷达接触时才可按普通飞机规则锁定；不进入 Wraith
 `members/all_members`、不进入 BOSS 血条且不阻塞胜利。完整机体数值、出生几何与结算边界由
@@ -137,7 +143,7 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 
 ### 2.7 双层隐形与目标释放
 
-- 四架 F-47 本体与强化层 YF-23 均显式开启 [enemy-sensor-stealth](../systems/enemy-sensor-stealth.md)：光学隐身窗外，脱离全部有效玩家小队雷达照射且处于全部玩家机 1000px 外满 5.0s 后才丢失接触。YF-23 没有永久锁定免疫；被有效雷达照射或进入 1000px 近距圈即显形，建立接触后仍按普通飞机规则可锁定。
+- 六架 F-47 本体与强化层 YF-23 均显式开启 [enemy-sensor-stealth](../systems/enemy-sensor-stealth.md)：光学隐身窗外，脱离全部有效玩家小队雷达照射且处于全部玩家机 1000px 外满 5.0s 后才丢失接触。YF-23 没有永久锁定免疫；被有效雷达照射或进入 1000px 近距圈即显形，建立接触后仍按普通飞机规则可锁定。
 - 原有 5.5s 周期光学隐身不被替换，但节奏削弱为：开战后先等 60.0s，使用结束后再进入严格 60.0s CD，CD 完成可重复使用；取消来袭导弹绕过 CD 的紧急触发。淡入/淡出各 1.0s。
 - 当前操控玩家机进入任一 Wraith 成员 1000px（2000m）内时，全队光学 cloak 不得启动；若已启动则提前结束并显形。传感器隐形与 `is_cloaked` 分别持有生命周期和透明度，重叠时除该近距揭露规则外不得互相覆盖。
 - 任何一层进入隐形时，所有存活玩家小队成员对该 F-47 的 `combat_target`、主雷达锁和副雷达锁必须立即释放。
@@ -171,7 +177,7 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 1. **指定 BAIT**：默认 WRAITH-02（KNIGHT）。若它已阵亡，顺位取存活的 KNIGHT，再取 SNIPER。
 2. **BAIT 行为**：朝玩家方向做一次高可见度的接近，然后转向拉开至 3000 m，**保持在玩家雷达锥内**
    （诱饵必须看起来是能吃下的猎物）。BAIT **不开火** —— 它的任务是被追。
-3. **其余三机**：分成左右两翼切入，两翼与"玩家→BAIT"轴线的夹角 **≥ 60°**（Shaw 的 bracket 几何）。
+3. **其余五机**：分成左右两翼切入，两翼与"玩家→BAIT"轴线的夹角 **≥ 60°**（Shaw 的 bracket 几何）。
    分离轴不足 60° 时视为包夹失败，重新分配。
 4. **收网**：玩家一旦咬住 BAIT ≥ 4 s，两翼同时进入攻击 → 转 PRESS。
 
@@ -234,12 +240,36 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 - **战术状态机**与 tier 的 `AceSquad.SquadState`（INTRO/PURSUIT/CLOAK）是**两层**：
   tier 层管"是否交战 / 是否隐形"，本 spec 的战术层在 PURSUIT 之内运转。
   进 CLOAK 时战术层整个撤场（撤 directive + 清包围轴），回 PURSUIT 时从 PERCH 重新起手 ——
-  否则隐形期间四机还在执行上一相的站位，出隐形时相位与实际脱节。
+  否则隐形期间六机还在执行上一相的站位，出隐形时相位与实际脱节。
 - **依赖** `EngagementSpeedGovernor`：没有它，任何战术都执行不了（半径 > 距离时机头指不到目标）。
 - **依赖** [circle-cut-entry](../systems/circle-cut-entry.md)：PRESS 阶段的收网执行层 ——
   KNIGHT 把玩家拖进转弯圈后，另一架从圈外横切收网走该共享几何，本 spec 不重复实现。
 
 ## 5. 验收标准（Acceptance / Litmus）
+
+### 六机试装验证（2026-10-28）
+
+- 成本形状：增加两架完整 BOSS 的 AI、物理、武器、机体/尾迹/状态牌；无新常驻 tick。
+- C1：`battlefield_atmosphere_stress_36`，30s Shadow Visual，正式 36 名混合海陆空演员与八段巡检镜头。
+- S2：`boss_wraith_stress`，30s Shadow Visual，六本体 + 双 YF-23 + 12 友军 + 玩家，三败恐惧配置、0.20 镜头，保留真实武器/尾迹/标签。比较以本轮固定源码、同机 Godot 4.7.2 / GL 为准，不沿用旧四机性能数字。
+- [x] focused：六机角色/机位、演出时序与速度包线、多次击败门、真实 SceneTree 终态。`boss_hunter` 143/143、`boss_progression` 72/72、`presentation` 437/437、`squad_ownership` 与 `unit_status` 通过。
+- [x] Visual：`wraith_arrival_visual` 验证六架完整入画/淡入、状态牌让出画面、释放后立刻接战；0/1/3 历史层各自走完真实六机击毁与胜利。截图 `bench/results/wraith_six_00.png` 至 `wraith_six_03.png`。交汇淡出保留窗口末兜底，不要求六架同时抵达同一点。
+- [x] 默认 `all`：105 个同步测试组与 93 个生命周期案例通过，wrapper 退出 0，运行时错误门通过。
+- [x] C1 与 S2 本轮 30s Visual 样本均通过严格 60 FPS 门；样本和边界见下表。
+- [ ] 完整局平衡：首见与高次数、不同机型/Build 的击破时长、受伤和减员仍需真实游玩样本；自动功能测试不替代该项。
+
+Godot 4.7.2 Steam / GL Compatibility / RTX 3080 / 1600×900，正式 3D 机体与反馈保留。本次为当前六机版绝对帧率检查，没有四机同源码 A/B，不据此宣称性能提升或回退比例。
+
+| 30s Visual 样本（2026-10-28） | 实际负载 | avg / p1 / worst FPS | 低于 60 FPS 帧数 | 原始结果 |
+|---|---|---|---|---|
+| C1 | 36 名演员、8/8 镜头巡检、99 bullets / 5 shells | 214.15 / 90.18 / 74.64 | 0 | `bench/results/battlefield_atmosphere_stress_36_20261028_050519.txt` |
+| S2 自然战斗 | 6 F-47 + 2 YF-23 + 12 友军 + 玩家，全程 21 架，末帧 8 missiles | 234.07 / 98.78 / 71.03 | 0 | `bench/results/boss_wraith_stress_20261028_050609.txt` |
+| S2 多人恐惧探针 | 同编成 21 架；52 次真实来源 FEAR 申请成功、峰值 13 架受控 | 250.75 / 101.84 / 82.58 | 0 | `bench/results/boss_wraith_stress_20261028_050800.txt` |
+| S2 紫锥绘制探针 | 同编成与多人受控，额外持续绘制大幅正式紫锥 7076 次 | 238.86 / 94.22 / 65.88 | 0 | `bench/results/boss_wraith_stress_20261028_050951.txt` |
+
+两项恐惧探针启用 `AGL_BENCH_FEAR_PROBE=enabled`，绘制项额外启用 `AGL_BENCH_FEAR_VISUAL_STRESS=1`。探针不删武器或单位，但受控逃逸会改变可见度；两次 `cone_frames=0`，因此只证明多人受控和专门绘制负载，不证明自然紫锥施法频率或完整局难度。不能把不同负载的三次 S2 当作三次同条件性能对照。
+
+### 既有战术验收
 
 - [ ] **角色可辨**：观察 60 s，KNIGHT 平均交战距离 < 2000 m，SNIPER > 3500 m，两组不混。
 - [ ] **包夹成立**：BRACKET 触发时，两翼与"玩家→BAIT"轴的夹角 ≥ 60°；玩家咬住 BAIT 后 4 s 内两翼进入攻击。
@@ -253,7 +283,7 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 - [ ] 已知 seam 未触碰 / 已妥善处理（见 architecture/known-seams.md）
 - [ ] i18n：玩家可见文本走 tr()，三语已补（见 reference/i18n.md）
 - [x] 初见不生成额外支援；首败后接战在 Wraith 队形后方生成两架启用传感器隐形、接触建立后可正常锁定的 YF-23，且不参与演出、血条或胜利判定
-- [x] 四架 F-47 与两架 YF-23 均开启传感器隐形；传感器/光学任一隐形沿都立即清除所有玩家小队成员的 `combat_target`，且光学显形后点名可自动重接
+- [x] 六架 F-47 与两架 YF-23 均开启传感器隐形；传感器/光学任一隐形沿都立即清除所有玩家小队成员的 `combat_target`，且光学显形后点名可自动重接
 - [x] Wraith 光学 cloak 开战后 60s 才首次可用；每次结束后严格等待 60s 可再次使用，导弹来袭不能提前触发
 - [x] 任一玩家小队成员进入目标 1000px 内时传感器隐形立即揭露；当前操控玩家机进入任一 Wraith 1000px 内时光学 cloak 禁止启动或提前结束；左下雷达在隐形期间保留匿名位置提示
 - [x] 光学短窗保留的 `commanded_target` 在隐形中不能被任何 RTS/AI 路径重写为 `combat_target`，显形后才自动重接
@@ -310,6 +340,8 @@ YF-23 `BLACKWIDOW-01/02` 远距支援：在 Wraith 队形后方成对潜伏、�
 | 无头断言（`--bench=boss_hunter`） | `scripts/tests/test_boss_hunter.gd` |
 
 ## 8. 变更记录
+
+- 2026-10-28 / v11：用户批准六机与登场同步调整。固定 4 KNIGHT + 2 SNIPER，强化保持双 YF-23 与三败恐惧；补六槽生成、对称战术扇面、六机演出与跨帧验证。
 
 | 日期 | spec_version | 改动 |
 |---|---|---|

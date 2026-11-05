@@ -69,6 +69,7 @@ var _subviewports: Array[WeakRef] = []
 var _main_vp_rid: RID
 var _started_usec: int = 0
 var _dumped: bool = false
+var _measure_viewports: bool = true
 
 const COUNTER_MONITORS := [
 	Performance.OBJECT_COUNT, Performance.OBJECT_RESOURCE_COUNT, Performance.OBJECT_NODE_COUNT,
@@ -104,11 +105,13 @@ func _ready() -> void:
 	get_tree().node_added.connect(_on_node_added)
 	get_tree().node_removed.connect(_on_node_removed)
 	_main_vp_rid = get_tree().root.get_viewport_rid()
-	RenderingServer.viewport_set_measure_render_time(_main_vp_rid, true)
+	# GL时间查询本身可能等待GPU；CPU诊断保留完整阶段墙钟，不启用GPU查询。
+	_measure_viewports=OS.get_environment("AGL_FRAME_PROBE_CPU_ONLY")!="1"
+	if _measure_viewports: RenderingServer.viewport_set_measure_render_time(_main_vp_rid, true)
 	_counters_base.resize(COUNTER_MONITORS.size())
 	if OS.has_environment("AGL_FRAME_PROBE_AUTOPLAY"):
 		add_child(load("res://scripts/diagnostics/frame_probe_autoplay.gd").new())
-	printerr("[FrameProbe] armed (detail >= %.1f ms)" % (DETAIL_THRESHOLD_US / 1000.0))
+	printerr("[FrameProbe] armed (detail >= %.1f ms, viewport_timing=%s)" % [DETAIL_THRESHOLD_US / 1000.0,_measure_viewports])
 
 
 # ───────────────────────── 阶段边界 ─────────────────────────
@@ -193,6 +196,7 @@ func _register_subviewport(vp: SubViewport) -> void:
 
 
 func _enable_measure(ref: WeakRef) -> void:
+	if not _measure_viewports: return
 	var vp: Variant = ref.get_ref()
 	if vp != null and is_instance_valid(vp):
 		RenderingServer.viewport_set_measure_render_time((vp as SubViewport).get_viewport_rid(), true)
@@ -297,8 +301,8 @@ func _sample_display() -> void:
 		RenderingServer.VIEWPORT_RENDER_INFO_TYPE_CANVAS, RenderingServer.VIEWPORT_RENDER_INFO_OBJECTS_IN_FRAME)
 	_disp[2] = RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)
 	_disp[3] = RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)
-	_disp[4] = RenderingServer.viewport_get_measured_render_time_cpu(_main_vp_rid)
-	_disp[5] = RenderingServer.viewport_get_measured_render_time_gpu(_main_vp_rid)
+	_disp[4] = RenderingServer.viewport_get_measured_render_time_cpu(_main_vp_rid) if _measure_viewports else -1.0
+	_disp[5] = RenderingServer.viewport_get_measured_render_time_gpu(_main_vp_rid) if _measure_viewports else -1.0
 	var sub_cpu := 0.0
 	var sub_gpu := 0.0
 	for i in range(_subviewports.size() - 1, -1, -1):
@@ -307,10 +311,11 @@ func _sample_display() -> void:
 			_subviewports.remove_at(i)
 			continue
 		var rid: RID = (vp as SubViewport).get_viewport_rid()
-		sub_cpu += RenderingServer.viewport_get_measured_render_time_cpu(rid)
-		sub_gpu += RenderingServer.viewport_get_measured_render_time_gpu(rid)
-	_disp[6] = sub_cpu
-	_disp[7] = sub_gpu
+		if _measure_viewports:
+			sub_cpu += RenderingServer.viewport_get_measured_render_time_cpu(rid)
+			sub_gpu += RenderingServer.viewport_get_measured_render_time_gpu(rid)
+	_disp[6] = sub_cpu if _measure_viewports else -1.0
+	_disp[7] = sub_gpu if _measure_viewports else -1.0
 	_disp[8] = ct.origin.x
 	_disp[9] = ct.origin.y
 	_disp[10] = ct.x.length()
@@ -384,6 +389,8 @@ func dump() -> void:
 		tag += "_" + OS.get_environment("AGL_FRAME_PROBE_TAG").validate_filename()
 	var ts := Time.get_datetime_string_from_system(true).replace(":", "").replace("-", "").replace("T", "_")
 	var dir := "res://bench/results" if OS.has_feature("editor") else "user://bench/results"
+	# 显式诊断可写隔离tmp，避免常驻编辑器把逐帧CSV导入为翻译资源。
+	if not OS.get_environment("AGL_FRAME_PROBE_OUT").is_empty(): dir=OS.get_environment("AGL_FRAME_PROBE_OUT")
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
 	var base := "%s/frame_probe_%s_%s" % [dir, tag, ts]
 	var csv := FileAccess.open(base + ".csv", FileAccess.WRITE)

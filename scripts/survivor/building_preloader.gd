@@ -34,6 +34,7 @@ var _detail_cache_done := false
 var _volume_ref: WeakRef
 ## 正式局事件首次触发的同步工作（音乐/战区陆地/模板/轮廓/升级弹窗字形）在此提前完成
 var _runtime_prewarm: Node
+var _loading_phase_key := ""
 
 
 func _ready() -> void:
@@ -54,6 +55,8 @@ func _ready() -> void:
 		if DesertPreload.eligible(get_tree()):
 			_hint.text = tr("MAP_DESERT_RAILWAY_NAME")
 	_prewarm_map = OS.is_debug_build() \
+		and (not preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_BACKGROUND_SOURCE") \
+			or OS.get_cmdline_user_args().has("--vector-map-preview")) \
 		and not get_tree().has_meta("boss_debug_mode") \
 		and not get_tree().has_meta("ugc_map_path") \
 		and VectorPreviewRenderer.preview_available()
@@ -100,6 +103,14 @@ func _process(_delta: float) -> void:
 	# 运行时预热排在自身预载之后：不与东京地图预载（15s 超时）争主线程与加载线程。
 	if base_ready:
 		_runtime_prewarm.begin()
+	if preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_BACKGROUND_SOURCE"):
+		var session: Variant=_volume_ref.get_ref() if _volume_ref!=null else null
+		var preparing: bool=typeof(session)==TYPE_OBJECT and is_instance_valid(session) and session.status in ["starting","preparing"]
+		var phase_key := "PRELOAD_MAP_SOURCE" if preparing else ("PRELOAD_BATTLE_READY" if base_ready else "PRELOAD_MAP_DRAW")
+		if _bar: _bar.indeterminate=preparing
+		if _label and _loading_phase_key!=phase_key:
+			_loading_phase_key=phase_key
+			_label.text=tr(phase_key)
 	if base_ready and _runtime_prewarm.is_done() and _frames >= MIN_DISPLAY_FRAMES:
 		_finish()
 

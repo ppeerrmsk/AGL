@@ -354,6 +354,7 @@ static func release(ac: Aircraft, target_missile: Missile = null) -> void:
 				EventLogger.log_event("SKILL", ac._log_name(),
 					"SPECTRA: jam shooter %s for 5s" % target_missile.source.callsign)
 				# 729 补：SPECTRA 也是玩家 JAM 来源，须走同一钩子（共振反馈的前置之一）
+				SkillHooks.on_jam_target_hit(ac, target_missile.source as CombatUnit)
 				SkillHooks.on_player_jam_landed(ac, 1)
 	else:
 		# 失败也记日志（2026-07-03 补观测盲区：旧版只记成功，"投了焰仍被命中"无法归因）

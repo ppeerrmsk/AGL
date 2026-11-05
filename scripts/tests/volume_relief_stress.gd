@@ -116,7 +116,7 @@ func _capture_sequence() -> void:
 		file.store_string("Godot %s GL Compatibility Visual\n%s" % [Engine.get_version_info().string, report])
 		file.close()
 	RenderingServer.viewport_set_measure_render_time(viewport_rid, false)
-	tree.quit(0 if below == 0 and visited.size() == 6 and file != null and image_error == OK
+	AudioManager.request_quit(0 if below == 0 and visited.size() == 6 and file != null and image_error == OK
 		and submitted_frames == samples.size() and not samples.is_empty() and converged else 1)
 
 

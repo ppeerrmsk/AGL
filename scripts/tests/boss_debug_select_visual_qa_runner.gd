@@ -240,8 +240,16 @@ func _ready() -> void:
 	get_tree().set_meta("boss_debug_level", 17)
 	var desert_carrier := SURVIVOR_MODE_SCENE.instantiate()
 	add_child(desert_carrier)
-	for _frame in range(420):
+	# 渲染帧率不是玩法时钟；高 FPS 下 420 帧可能还未等到首波起飞。
+	# 等正式状态，保留两架起飞的验收条件并设置有限截止时间。
+	var carrier_deadline := Time.get_ticks_msec() + 12000
+	while Time.get_ticks_msec() < carrier_deadline:
 		await get_tree().process_frame
+		var pending_encounter: BossEncounter = desert_carrier._spawner.get_boss()
+		var pending_members: Array = pending_encounter.get_display_members() if pending_encounter else []
+		if pending_encounter != null and pending_encounter.active and pending_members.size() == 1 \
+				and is_instance_valid(pending_members[0]) and pending_members[0].parked_aircraft_count() == 2:
+			break
 	var carrier_encounter: BossEncounter = desert_carrier._spawner.get_boss()
 	var carrier_members: Array = carrier_encounter.get_display_members() if carrier_encounter else []
 	var carrier_ok: bool = desert_carrier._map_id == "desert_railway_preview" \
@@ -274,7 +282,7 @@ func _ready() -> void:
 	desert_carrier.queue_free()
 	for _frame in range(3):
 		await get_tree().process_frame
-	get_tree().quit(0 if base_ok and final_war_ok and final_err == OK \
+	AudioManager.request_quit(0 if base_ok and final_war_ok and final_err == OK \
 		and train_ok and train_err == OK and carrier_ok and carrier_err == OK else 1)
 
 

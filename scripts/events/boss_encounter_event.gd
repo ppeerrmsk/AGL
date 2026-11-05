@@ -189,7 +189,7 @@ func _try_play_arrival_cinematic() -> bool:
 		"owner": self,
 		"actors": members,
 		"anchor": anchor,
-		"cp": anchor + inbound * 250.0,      ## 交汇点：锚点前方 250px（按 1.55s 交汇窗 × 机体包线反推）
+		"cp": anchor - inbound * 250.0,      ## 飞机沿 -inbound 进场；交汇点必须在实际航向前方，避免短窗内掉头。
 		"inbound": inbound,
 		"extra_layers": extra,
 		"callsign_prefix": encounter.callsign_prefix,

@@ -20,6 +20,7 @@ var _texture_pins := PackedStringArray()
 var _textures: Dictionary = {}
 var _texture_jobs: Dictionary = {}
 var _texture_retiring: Dictionary = {}
+var _texture_reservations: Dictionary = {}
 var _texture_errors: Dictionary = {}
 var texture_started := 0
 var texture_completed := 0
@@ -27,15 +28,25 @@ var max_texture_upload_usec := 0
 var max_texture_uploads_per_frame := 0
 var texture_upload_usec := 0
 var _texture_upload_frame := -1
+var reuse_textures := preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_REUSE_TEXTURE") == "1"
+var texture_reuses := 0
+var texture_slot_handoffs := 0
+var texture_reuse_usec := 0
+var max_texture_reuse_usec := 0
 var mesh_digest_usec := 0
 var mesh_finalize_deferred_frames := 0
-var minimum_mesh_progress := OS.get_environment("AGL_TOKYO_MESH_PROGRESS")=="1"
+# 小页上传期间也让原一毫秒领取门最多推进一个网格，避免连续图片帧饿死回中几何。
+# 复用已有受限路径；显式0仍可关闭，资源池、请求槽与单次领取预算不变。
+var minimum_mesh_progress := preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_MESH_PROGRESS")=="1" \
+	or (not OS.has_environment("AGL_TOKYO_MESH_PROGRESS") and preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_RETURN_CACHE"))
 var minimum_mesh_progress_frames := 0
 var visible_io_first := OS.get_environment("AGL_TOKYO_VISIBLE_IO_FIRST")=="1"
 var visible_meshes := PackedStringArray()
 var visible_images := PackedStringArray()
 var speculative_image_deferrals := 0
 var fair_image_slot := OS.get_environment("AGL_TOKYO_FAIR_IMAGE_SLOT")=="1"
+var balanced_io := OS.get_environment("AGL_TOKYO_BALANCED_IO")=="1"
+var input_waiting := false
 var visible_finalize_first := OS.get_environment("AGL_TOKYO_VISIBLE_FINALIZE_FIRST")=="1"
 var speculative_upload_deferrals := 0
 var visible_dispatch_yield := OS.get_environment("AGL_TOKYO_VISIBLE_DISPATCH_YIELD")=="1"
@@ -47,12 +58,18 @@ var _mesh_checks: Dictionary = {}
 var _mesh_hashes: Dictionary = {}
 var mesh_checks_started := 0
 var mesh_checks_completed := 0
+var async_mesh_dispatch := preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_RETURN_CACHE")=="1"
+var _mesh_dispatches: Dictionary = {}
+var _mesh_dispatch_rejected: Dictionary = {}
+var mesh_dispatches_started := 0
+var mesh_dispatches_completed := 0
 var residency_meshes := PackedStringArray()
 var residency_images := PackedStringArray()
 var residency_bytes := 0
 var residency_limit := BUDGET
 var _texture_audit: Dictionary = {}
 var _cache_access: Dictionary = {}
+var cache_lru := preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_CACHE_LRU")=="1"
 var recent_mesh_grace := OS.get_environment("AGL_TOKYO_RECENT_MESH_GRACE")=="1"
 var _recent_mesh_until: Dictionary={}
 
@@ -135,17 +152,34 @@ func residency_ready() -> bool:
 	return true
 
 
+func _retirement_data() -> Array:
+	var values: Array=super._retirement_data()
+	values.append(_texture_descriptors)
+	return values
+
+
 func configure_hlod(owner_node: Node, geometry: Dictionary, textures: Dictionary) -> bool:
 	if _owner_ref != null or _closed: return false
+	return configure_prepared_hlod(owner_node,prepare_hlod_source(geometry,textures))
+
+
+static func prepare_hlod_source(geometry: Dictionary, textures: Dictionary) -> Dictionary:
 	for path: Variant in textures:
 		var row: Variant = textures[path]
-		if not path is String or geometry.has(path) or not row is Dictionary: return false
-		if row.has("mipmaps") and row.mipmaps!=true and not preload("res://scripts/rendering/tokyo_ground_height.gd").valid_texture(row): return false
+		if not path is String or geometry.has(path) or not row is Dictionary: return {}
+		if row.has("mipmaps") and row.mipmaps!=true and not preload("res://scripts/rendering/tokyo_ground_height.gd").valid_texture(row): return {}
 		if not Contract.sha(row.get("sha256")) or not Contract.integer(row.get("width"),1,16384) \
 			or not Contract.integer(row.get("height"),1,16384) or not Contract.integer(row.get("mip_bytes"),1) \
-			or (row.get("format")!=Image.FORMAT_DXT1 and row.get("format")!=Image.FORMAT_DXT5 and not preload("res://scripts/rendering/tokyo_ground_height.gd").valid_texture(row)) or row.get("charge")!=int(row.mip_bytes)*3+4096: return false
-	_texture_descriptors=textures.duplicate(true)
-	configure(owner_node,geometry.duplicate(true))
+			or (row.get("format")!=Image.FORMAT_DXT1 and row.get("format")!=Image.FORMAT_DXT5 and not preload("res://scripts/rendering/tokyo_ground_height.gd").valid_texture(row)) or row.get("charge")!=int(row.mip_bytes)*3+4096: return {}
+	return {"textures":textures.duplicate(true),"layout":prepare_layout(geometry.duplicate(true))}
+
+
+func configure_prepared_hlod(owner_node: Node, prepared: Dictionary) -> bool:
+	# prepared 仅来自上面的验证函数，完成后台任务后由此唯一接管，不再次复制全图。
+	if _owner_ref!=null or _closed or prepared.is_empty(): return false
+	_texture_descriptors=prepared.textures
+	_configure_layout(owner_node,prepared.layout)
+	fast_file_probe=preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_FAST_FILE_PROBE")=="1"
 	# 同池复用不增加预算；明确0才关闭，供相同条件A/B使用。
 	_retain_unused=OS.get_environment("AGL_TOKYO_RETAIN_UNUSED")!="0"
 	# 低帧率下也允许细组件提前就绪；领取仍受父级1000us门、原字节预算约束。
@@ -164,7 +198,13 @@ func request_textures(wanted: PackedStringArray, pins: PackedStringArray) -> voi
 	if _closed: return
 	_texture_wanted=wanted.duplicate()
 	_texture_pins=pins.duplicate()
+	_release_texture_reservations()
 	for path: String in _textures.keys():
+		if reuse_textures:
+			if path in _texture_wanted or path in _texture_pins:
+				_textures[path].erase("unused_frame")
+			elif not _textures[path].has("unused_frame"):
+				_textures[path]["unused_frame"]=Engine.get_process_frames()
 		if not _retain_unused and path not in _texture_wanted and path not in _texture_pins:
 			var row: Dictionary = _textures[path]
 			row["retire_frame"]=Engine.get_process_frames()+2
@@ -184,7 +224,7 @@ func prepare_target_space() -> void:
 		if not _cache.has(path) and not _pending.has(path):
 			missing+=int(_descriptors.get(path,{}).get("bytes",BUDGET+1))
 	for path: String in _texture_wanted:
-		if not _textures.has(path) and not _texture_jobs.has(path) and not _texture_retiring.has(path) and not _decoded_images.has(path):
+		if not _textures.has(path) and not _texture_jobs.has(path) and not _texture_retiring.has(path) and not _decoded_images.has(path) and not _texture_reservations.has(path):
 			missing+=int(_texture_descriptors.get(path,{}).get("charge",BUDGET+1))
 	if missing>0: _prune(missing)
 
@@ -194,7 +234,7 @@ func _prune(required: int = 0) -> void:
 	for path: String in _decoded_images.keys():
 		if _bytes+_reserved+required<=geometry_budget(): break
 		if path not in _texture_wanted and path not in _texture_pins: _release_decoded(path)
-	if _retain_unused and residency_limit>=768*1024*1024:
+	if _retain_unused and (cache_lru or residency_limit>=768*1024*1024):
 		_prune_lru(required)
 		return
 	super._prune(required)
@@ -216,7 +256,7 @@ func _prune(required: int = 0) -> void:
 
 
 func touch_display_resources(meshes: PackedStringArray, images: PackedStringArray) -> void:
-	if residency_limit<768*1024*1024: return
+	if not cache_lru and residency_limit<768*1024*1024: return
 	var frame := Engine.get_process_frames()
 	for path: String in _paths(meshes):
 		if _cache.has(path): _cache_access[path]=frame
@@ -330,9 +370,45 @@ static func checksum_after_load(path: String) -> String:
 	return checksum_file(path) if status==ResourceLoader.THREAD_LOAD_LOADED else ""
 
 
+static func request_and_checksum(path: String, known: bool, direct_probe: bool) -> Dictionary:
+	# 仅处理独立路径/纯值；场景、共享字典及资源领取仍只在主线程访问。
+	var exists := known or (direct_probe and not path.begins_with("uid://") and FileAccess.file_exists(path))
+	if not exists: exists=ResourceLoader.exists(path)
+	if not exists: return {"requested":false,"error":"missing resource"}
+	var error := ResourceLoader.load_threaded_request(path,"",false,ResourceLoader.CACHE_MODE_IGNORE)
+	if error!=OK: return {"requested":false,"error":"request rejected: %d"%error}
+	var digest := checksum_after_load(path)
+	return {"requested":true,"sha256":digest}
+
+
+func _defer_resource_probe(path: String) -> bool:
+	return async_mesh_dispatch and not _main_thread_meshes and _descriptors.get(path,{}).has("sha256")
+
+
+func _finish_mesh_dispatch(path: String) -> void:
+	var worker: Thread = _mesh_dispatches[path]
+	var result: Dictionary = worker.wait_to_finish()
+	_mesh_dispatches.erase(path)
+	mesh_dispatches_completed+=1
+	if not result.requested:
+		_mesh_dispatch_rejected[path]=true
+		_failures[path]=String(result.error)
+	else:
+		_known_resources[path]=true
+		_mesh_hashes[path]=String(result.sha256)
+
+
 func _request_load(path: String) -> Error:
 	# 上次加载可能已完成但被相机取消，未经过_matches；旧摘要不能使新请求提前ready。
 	_mesh_hashes.erase(path)
+	_mesh_dispatch_rejected.erase(path)
+	if _defer_resource_probe(path):
+		var worker := Thread.new()
+		var error := worker.start(request_and_checksum.bind(path,_known_resources.has(path),fast_file_probe))
+		if error!=OK: return error
+		_mesh_dispatches[path]=worker
+		mesh_dispatches_started+=1
+		return OK
 	var trace := PerfBuckets.frame_trace_enabled
 	var phase_started := Time.get_ticks_usec() if trace else 0
 	var result := super._request_load(path)
@@ -350,6 +426,12 @@ func _request_load(path: String) -> Error:
 
 
 func _load_status(path: String) -> int:
+	if _mesh_dispatches.has(path):
+		var dispatch: Thread = _mesh_dispatches[path]
+		if dispatch.is_alive(): return ResourceLoader.THREAD_LOAD_IN_PROGRESS
+		_finish_mesh_dispatch(path)
+	# 尚未向ResourceLoader登记的失败不能调用load_threaded_get；父级仍归还预约和槽。
+	if _mesh_dispatch_rejected.has(path): return ResourceLoader.THREAD_LOAD_INVALID_RESOURCE
 	var status := super._load_status(path)
 	if _closed or _main_thread_meshes or status!=ResourceLoader.THREAD_LOAD_LOADED or not _descriptors[path].has("sha256"):
 		return status
@@ -372,6 +454,12 @@ func _load_status(path: String) -> int:
 
 func _exit_tree() -> void:
 	close()
+	for path: String in _mesh_dispatches.keys(): _finish_mesh_dispatch(path)
+	for path: String in _mesh_dispatch_rejected:
+		_busy.erase(path)
+		_reserved-=int(_pending.get(path,0))
+		_pending.erase(path)
+	_mesh_dispatch_rejected.clear()
 	for worker: Thread in _mesh_checks.values(): worker.wait_to_finish()
 	_mesh_checks.clear();_mesh_hashes.clear()
 	for path: String in _texture_jobs:
@@ -397,6 +485,85 @@ static func load_image(path: String, expected: Dictionary) -> Dictionary:
 
 static func can_upload_texture(count: int, elapsed_usec: int, previous_bytes: int, next_bytes: int) -> bool:
 	return count==0 or (count==1 and elapsed_usec<1000 and previous_bytes<=1048576 and next_bytes<=1048576)
+
+
+func _take_recycled_slot(path: String, allow_cached: bool = false) -> Dictionary:
+	# 同规格旧 GPU + 新 Image 的加载/上传暂存仍由原完整三份费用覆盖，不再申请第二份额度。
+	if not reuse_textures or _closed: return {}
+	var expected: Dictionary=_texture_descriptors[path]
+	var frame := Engine.get_process_frames()
+	# 有容量就保留已加载地图；复用不能为了省一次创建而制造后续重读。
+	var banks: Array[Dictionary]=[_texture_retiring]
+	if allow_cached: banks.append(_textures)
+	for bank: Dictionary in banks:
+		for donor: String in bank:
+			if donor==path or donor in _texture_wanted or donor in _texture_pins: continue
+			var row: Dictionary=bank[donor]
+			var ready_at := int(row.get("retire_frame",int(row.get("unused_frame",frame))+2))
+			if frame<ready_at: continue
+			var previous: Dictionary=_texture_descriptors[donor]
+			if previous.width!=expected.width or previous.height!=expected.height \
+				or previous.format!=expected.format or previous.get("mipmaps",true)!=expected.get("mipmaps",true) \
+				or previous.charge!=expected.charge or previous.mip_bytes!=expected.mip_bytes: continue
+			var texture := row.get("texture") as ImageTexture
+			# 字典和本地变量各持有一份；额外引用说明材质/消费者仍在使用。
+			if texture==null or texture.get_reference_count()!=2: continue
+			if _auxiliary.get(row.token.get_instance_id(),-1)!=int(expected.charge): continue
+			bank.erase(donor)
+			_cache_access.erase(donor)
+			_audit_texture(donor,"recycled")
+			row.erase("retire_frame");row.erase("unused_frame")
+			return row
+	return {}
+
+
+func _take_recycled_texture(path: String) -> ImageTexture:
+	# 已经独立预约的新图也可接管闲置对象，此时归还旧额度，保留新预约。
+	var row := _take_recycled_slot(path)
+	if row.is_empty(): return null
+	var texture := row.texture as ImageTexture
+	row.erase("texture")
+	release_auxiliary(row.token.get_instance_id())
+	return texture
+
+
+func _release_retired_textures() -> void:
+	for path: String in _texture_retiring.keys():
+		var row: Dictionary=_texture_retiring[path]
+		if Engine.get_process_frames()<int(row.retire_frame): continue
+		_audit_texture(path,"retired")
+		row.erase("texture")
+		release_auxiliary(row.token.get_instance_id())
+		_texture_retiring.erase(path)
+		_cache_access.erase(path)
+
+
+func _release_texture_reservations(force: bool = false) -> void:
+	for path: String in _texture_reservations.keys():
+		if not force and reuse_textures and not _closed and path in _texture_wanted: continue
+		var slot: Dictionary = _texture_reservations[path]
+		slot.erase("texture")
+		release_auxiliary(slot.token.get_instance_id())
+		_texture_reservations.erase(path)
+
+
+func _reserve_recycled_slots() -> void:
+	# 旧GPU到期时即交给已明确的后继请求；共享I/O槽繁忙不能把这次交接丢掉。
+	# 未启动的请求继承原完整预约，已启动请求则保留自己的预约并归还旧费用。
+	if not reuse_textures or _closed: return
+	for path: String in _texture_wanted:
+		if _textures.has(path) or _texture_reservations.has(path) or _texture_errors.has(path) or not _texture_descriptors.has(path): continue
+		var job: Dictionary = _texture_jobs.get(path,_decoded_images.get(path,{}))
+		if job.has("texture"): continue
+		var slot := _take_recycled_slot(path)
+		if slot.is_empty(): continue
+		if not job.is_empty():
+			job["texture"]=slot.texture
+			slot.erase("texture")
+			release_auxiliary(slot.token.get_instance_id())
+		else:
+			_texture_reservations[path]=slot
+		_audit_texture(path,"slot_reserved")
 
 
 static func ordered_texture_jobs(jobs: Dictionary, wanted: PackedStringArray) -> PackedStringArray:
@@ -470,6 +637,7 @@ func _detach_speculative(path: String) -> void:
 	var result: Dictionary = job.worker.wait_to_finish()
 	_texture_jobs.erase(path)
 	_busy.erase(path)
+	job.erase("texture") # 借用旧 GPU 不进入解码缓存，先释放再决定是否归还预约。
 	if _keep_decoded(path,result,job.token):
 		decoded_detaches+=1
 		_audit_texture(path,"decoded_detach")
@@ -480,20 +648,24 @@ func _detach_speculative(path: String) -> void:
 
 
 func _step_textures() -> void:
+	_release_texture_reservations()
 	for path: String in _decoded_images.keys():
 		if _closed or not retain_decoded or (Time.get_ticks_msec()>=int(_decoded_images[path].expires) and path not in _texture_wanted and path not in _texture_pins):
 			_release_decoded(path)
 	for path: String in _texture_retiring.keys():
 		var row: Dictionary = _texture_retiring[path]
 		if not _closed and (path in _texture_wanted or path in _texture_pins):
+			row.erase("retire_frame")
+			row.erase("unused_frame")
 			_textures[path]=row
 			_texture_retiring.erase(path)
-		elif Engine.get_process_frames()>=int(row.retire_frame):
+		elif Engine.get_process_frames()>=int(row.retire_frame) and (not reuse_textures or _closed):
 			_audit_texture(path,"retired")
 			row.erase("texture")
 			release_auxiliary(row.token.get_instance_id())
 			_texture_retiring.erase(path)
 			_cache_access.erase(path)
+	_reserve_recycled_slots()
 	var frame_uploads := 0
 	var frame_upload_usec := 0
 	var frame_upload_bytes := 0
@@ -526,6 +698,8 @@ func _step_textures() -> void:
 			result=worker.wait_to_finish()
 		_busy.erase(path)
 		_texture_jobs.erase(path)
+		if not needed or result.has("error"):
+			job.erase("texture") # ready_jobs 也持有此字典，不能让旧 GPU 留到预约释放之后。
 		if not needed:
 			if not _keep_decoded(path,result,job.token):
 				result.clear()
@@ -536,8 +710,16 @@ func _step_textures() -> void:
 		else:
 			var started_at := Time.get_ticks_usec()
 			_texture_upload_frame = Engine.get_process_frames()
-			var uploaded := ImageTexture.create_from_image(result.image)
+			var uploaded := job.get("texture") as ImageTexture
+			if uploaded==null: uploaded=_take_recycled_texture(path)
+			var recycled := uploaded!=null
+			if recycled: uploaded.update(result.image)
+			else: uploaded=ImageTexture.create_from_image(result.image)
 			var upload_elapsed := Time.get_ticks_usec()-started_at
+			if recycled:
+				texture_reuses+=1
+				texture_reuse_usec+=upload_elapsed
+				max_texture_reuse_usec=maxi(max_texture_reuse_usec,upload_elapsed)
 			frame_uploads+=1
 			frame_upload_usec+=upload_elapsed
 			frame_upload_bytes+=int(_texture_descriptors[path].mip_bytes)
@@ -555,7 +737,9 @@ func _step_textures() -> void:
 				texture_completed+=1
 				_audit_texture(path,"upload",upload_elapsed)
 		# 仅首张不超过1MiB且耗时不足1ms时再传一张小图；最多两张，大图仍单份。
-	if _closed: return
+	if _closed:
+		if reuse_textures: _release_retired_textures()
+		return
 	for path in _texture_wanted:
 		if _textures.has(path) or _texture_jobs.has(path) or _decoded_images.has(path) or _texture_errors.has(path): continue
 		if not can_start_image(path):
@@ -565,19 +749,33 @@ func _step_textures() -> void:
 			_texture_errors[path]="missing texture descriptor"
 			continue
 		if _busy.size()>=_request_limit or _texture_jobs.size()>=MAX_IMAGE_WORKERS or _busy.has(path): break
-		var token := RefCounted.new()
-		if not reserve_auxiliary(token.get_instance_id(),int(_texture_descriptors[path].charge)): break
+		var charge := int(_texture_descriptors[path].charge)
+		var slot: Dictionary=_texture_reservations.get(path,{})
+		_texture_reservations.erase(path)
+		if reuse_textures and slot.is_empty(): slot=_take_recycled_slot(path,_bytes+_reserved+charge>geometry_budget())
+		var token: RefCounted
+		if not slot.is_empty():
+			token=slot.token
+			texture_slot_handoffs+=1
+		else:
+			# 没有可接管项仍照常归还到期额度，不为缓存延长退役期。
+			if reuse_textures: _release_retired_textures()
+			token=RefCounted.new()
+			if not reserve_auxiliary(token.get_instance_id(),charge): break
 		var worker := Thread.new()
 		var error := worker.start(load_image.bind(path,_texture_descriptors[path].duplicate(true)))
 		if error!=OK:
+			slot.erase("texture")
 			release_auxiliary(token.get_instance_id())
 			_texture_errors[path]="image worker rejected: %d" % error
 			continue
 		_texture_jobs[path]={"worker":worker,"token":token}
+		if not slot.is_empty(): _texture_jobs[path]["texture"]=slot.texture
 		_busy[path]=get_instance_id()
 		texture_started+=1
 		_audit_texture(path,"request")
 		# 在原共享八槽和预留预算内使用最多四条图片I/O；GPU另守小图有界上传预算。
+	if reuse_textures: _release_retired_textures()
 
 
 func collect_ready_meshes() -> void:
@@ -591,6 +789,14 @@ static func should_defer_mesh_finalize(closing: bool, previous: int, completed: 
 
 
 func image_slot_reserve() -> int:
+	# 原共享槽内为尚未发起的当前图片留位；图片四线程上限和至少一个网格槽均不变。
+	# 不能等所有网格入队后再装地表，也不能让本轮刚完成的网格立即抢回全部名额。
+	if balanced_io and input_waiting and not _closed and _request_limit>1:
+		var missing := 0
+		for path: String in visible_images:
+			if _texture_descriptors.has(path) and not _textures.has(path) and not _texture_jobs.has(path) \
+				and not _decoded_images.has(path) and not _texture_errors.has(path): missing+=1
+		return mini(mini(missing,maxi(0,MAX_IMAGE_WORKERS-_texture_jobs.size())),_request_limit-1)
 	# 已完成网格领取后不能立即抢回全部共享槽，至少让一张当前地表获得启动机会。
 	if not fair_image_slot or _closed or _request_limit<=1 or not _texture_jobs.is_empty(): return 0
 	for path: String in visible_images:
@@ -613,9 +819,12 @@ func _process_stream() -> void:
 		if minimum_mesh_progress:
 			minimum_mesh_progress_frames+=1
 			var previous_width := _pipeline_width
+			var previous_limit := _request_limit
 			_pipeline_width=1
+			_request_limit-=image_slot_reserve()
 			super._process_stream()
 			_pipeline_width=previous_width
+			_request_limit=previous_limit
 		set_process(true)
 		return
 	var original_request_limit := _request_limit
@@ -631,6 +840,7 @@ func _process_stream() -> void:
 
 
 func close() -> void:
+	_release_texture_reservations(true)
 	for path: String in _decoded_images.keys(): _release_decoded(path)
 	if not _closed:
 		_residency_ledger.clear();_ledger_meshes.clear();_ledger_images.clear()
@@ -652,11 +862,16 @@ func summary() -> Dictionary:
 	if _audit_paths: result["texture_audit"]=_texture_audit.duplicate(true)
 	result["residency_bytes"]=residency_bytes
 	result["pool_limit"]=residency_limit
+	result["cache_lru"]=cache_lru
 	result["small_auxiliary_reclaims"]=small_auxiliary_reclaims
 	result["residency_ready"]=residency_ready()
 	result["pipeline_width"]=_pipeline_width
 	result["request_limit"]=_request_limit
 	result["mesh_checks_pending"]=_mesh_checks.size()
+	result["async_mesh_dispatch"]=async_mesh_dispatch
+	result["mesh_dispatches_started"]=mesh_dispatches_started
+	result["mesh_dispatches_completed"]=mesh_dispatches_completed
+	result["mesh_dispatches_pending"]=_mesh_dispatches.size()
 	result["minimum_mesh_progress"]=minimum_mesh_progress
 	result["minimum_mesh_progress_frames"]=minimum_mesh_progress_frames
 	result["visible_io_first"]=visible_io_first
@@ -671,9 +886,17 @@ func summary() -> Dictionary:
 	result["texture_pending"]=_texture_jobs.size()
 	result["texture_cached"]=_textures.size()
 	result["texture_retiring"]=_texture_retiring.size()
+	result["texture_reservations"]=_texture_reservations.size()
 	result["texture_failures"]=_texture_errors.duplicate()
 	result["texture_started"]=texture_started
 	result["texture_completed"]=texture_completed
+	result["reuse_textures"]=reuse_textures
+	result["balanced_io"]=balanced_io
+	result["input_waiting"]=input_waiting
+	result["texture_reuses"]=texture_reuses
+	result["texture_slot_handoffs"]=texture_slot_handoffs
+	result["texture_reuse_usec"]=texture_reuse_usec
+	result["max_texture_reuse_usec"]=max_texture_reuse_usec
 	result["max_texture_upload_usec"]=max_texture_upload_usec
 	result["max_texture_uploads_per_frame"]=max_texture_uploads_per_frame
 	result["texture_upload_usec"]=texture_upload_usec

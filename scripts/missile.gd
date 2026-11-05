@@ -1,5 +1,6 @@
 class_name Missile
 extends Node2D
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
 ## DEADAIR 5Hz 控制器使用的维护式注册表，避免每 tick 扫 MissileManager 子节点。
@@ -748,7 +749,7 @@ func _draw() -> void:
 
 
 func _draw_impl() -> void:
-	AircraftRenderer.clear_unit_status_panel(self)
+	AircraftRenderer.register_status_subject(self)
 	if not is_active:
 		return
 	_draw_body()
@@ -788,7 +789,10 @@ func _should_draw_data_label() -> bool:
 
 
 ## 真实在途导弹警告：一弹一线一三角，不聚合、不去重。
-func _draw_incoming_warning() -> void:
+func _draw_incoming_warning(canvas: Node2D = null) -> void:
+	canvas = AircraftRenderer.tactical_canvas(self, canvas)
+	if canvas == null:
+		return
 	var player: Aircraft = AircraftRenderer.safe_player_ref()
 	if not is_incoming_warning_for(player):
 		return
@@ -804,36 +808,36 @@ func _draw_incoming_warning() -> void:
 	var inv_zoom: float = AircraftRenderer.screen_space_inverse_scale(self)
 	var line_width: float = (LockWarning.FLASH_LINE_WIDTH if flash \
 		else LockWarning.PRE_LAUNCH_LINE_WIDTH) * inv_zoom
-	var local_player: Vector2 = to_local(player.global_position)
+	var local_player: Vector2 = AircraftRenderer.tactical_local_point(self, canvas, DisplayPacing.display_origin(player))
 	# 线长保留世界空间，只把线宽和玩家端点符号补偿为固定屏幕尺寸。
-	draw_line(Vector2.ZERO, local_player, line_color, line_width, true)
+	canvas.draw_line(Vector2.ZERO, local_player, line_color, line_width, true)
 	var marker_radius: float = (LockWarning.FLASH_MARKER_RADIUS if flash \
 		else LockWarning.PRE_LAUNCH_MARKER_RADIUS) * inv_zoom
-	draw_multiline(PackedVector2Array([
+	canvas.draw_multiline(PackedVector2Array([
 		local_player + Vector2(-marker_radius, 0),
 		local_player + Vector2(marker_radius, 0),
 		local_player + Vector2(0, -marker_radius),
 		local_player + Vector2(0, marker_radius),
 	]), line_color, line_width)
-	draw_arc(local_player, marker_radius, 0.0, TAU, 20,
+	canvas.draw_arc(local_player, marker_radius, 0.0, TAU, 20,
 		Color(line_color, 0.7 * blink), 1.2 * inv_zoom, true)
 
 	# 三角锚定玩家，但朝向真实导弹世界方向。每枚导弹独立提交一枚。
-	var toward_missile: Vector2 = global_position - player.global_position
+	var toward_missile: Vector2 = DisplayPacing.display_origin(self) - DisplayPacing.display_origin(player)
 	if toward_missile.length_squared() <= 1.0:
 		return
-	var direction := toward_missile.normalized()
+	var direction := get_canvas_transform().basis_xform(toward_missile).normalized()
 	var perp := Vector2(-direction.y, direction.x)
 	var arrow_blink: float = absf(sin(Time.get_ticks_msec() * 0.008))
 	var arrow_color := Color(1.0, 0.25, 0.2, lerpf(0.6, 1.0, arrow_blink))
 	var radius := LockWarning.DIRECTION_ARROW_RADIUS
 	var size := LockWarning.DIRECTION_ARROW_SIZE
-	draw_set_transform(local_player, -rotation, Vector2.ONE * inv_zoom)
+	canvas.draw_set_transform(local_player, -AircraftRenderer.tactical_screen_rotation(self, canvas), Vector2.ONE * inv_zoom)
 	var tip := direction * (radius + size)
 	var base_a := direction * radius + perp * size * 0.7
 	var base_b := direction * radius - perp * size * 0.7
-	draw_colored_polygon(PackedVector2Array([tip, base_a, base_b]), arrow_color)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	canvas.draw_colored_polygon(PackedVector2Array([tip, base_a, base_b]), arrow_color)
+	canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_body() -> void:
 	# 细长"子弹+尾翼"造型，heading=0 朝上，与飞机圆点图标明显区分
@@ -885,31 +889,8 @@ func _draw_motor_flame() -> void:
 	draw_colored_polygon(flame, glow)
 
 func _draw_data_label() -> void:
-	if not _font:
-		_font = ThemeDB.fallback_font
-	var display_name: String = params.display_name if params else "MSL"
+	AircraftRenderer.draw_status_snapshot(self)
 
-	# 到目标的距离
-	var dist_to_tgt_m := 0.0
-	if target and is_instance_valid(target) and not target.is_destroyed:
-		dist_to_tgt_m = global_position.distance_to(target.global_position) / 0.5  # PIXELS_PER_METER
-
-	var lines := PackedStringArray([
-		AircraftRenderer.english_status_identity(display_name, "MISSILE"),
-		AircraftRenderer.status_speed_knots_text(speed),
-		AircraftRenderer.status_range_text(dist_to_tgt_m, dist_to_tgt_m > 0.0),
-		"GUIDED" if has_guidance else "UNGUIDED",
-	])
-	var xform := get_global_transform_with_canvas()
-	var view_scale := xform.basis_xform(Vector2.RIGHT).length()
-	var screen_offset := AircraftRenderer.unit_status_screen_offset_for(
-		10.0, view_scale, xform.origin)
-	AircraftRenderer.draw_unit_status_panel(self, _font, lines, team,
-		screen_offset, {}, false, GameConstants.missile_label_colors(team))
-
-## 低空目标导引头性能衰减（地面杂波干扰 + 云层穿越累计损耗）
-## 低空衰减仅在扁平高度模式（生存模式）下生效
-## 优先用 _guidance_degradation_for() — 由 _physics_process 传入已解析的 (flat, tier) 避免重复属性查
 func _guidance_degradation() -> float:
 	var t_flat: bool = false
 	var t_tier: int = 0

@@ -198,9 +198,9 @@ func configure_frame_trace(active: bool) -> void:
 	_trace_frame_index = 0
 	_trace_has_pending_frame = false
 	_trace_physics_ticks = 0
-	_trace_frame_us.clear()
-	_trace_frame_counts.clear()
-	_trace_frame_events.clear()
+	_trace_frame_us = {}
+	_trace_frame_counts = {}
+	_trace_frame_events = {}
 	_trace_spikes.clear()
 	_trace_frames_below_60 = 0
 	_trace_dropped_spikes = 0
@@ -246,9 +246,10 @@ func begin_render_frame(delta: float) -> void:
 		_accumulate_engine_baseline(_trace_engine_snapshot())
 	_trace_has_pending_frame = true
 	_trace_physics_ticks = 0
-	_trace_frame_us.clear()
-	_trace_frame_counts.clear()
-	_trace_frame_events.clear()
+	# 已结算的字典归不可变帧快照持有；下一帧另建容器，避免重复深拷贝。
+	_trace_frame_us = {}
+	_trace_frame_counts = {}
+	_trace_frame_events = {}
 	# 上一帧结算实际发生在新帧墙钟区间内，清空后记入新帧，避免丢失或错帧。
 	if diagnostic_started_usec > 0:
 		tick("diagnostic.perf_begin_render_frame", Time.get_ticks_usec() - diagnostic_started_usec)
@@ -321,18 +322,25 @@ func _finalize_trace_frame(delta: float, engine_snapshot: Dictionary) -> void:
 			_trace_root_total_us.get(bucket_name, 0)) + root_us
 		_trace_root_active_frames[bucket_name] = int(
 			_trace_root_active_frames.get(bucket_name, 0)) + 1
+	_trace_frame_us.make_read_only()
+	_trace_frame_counts.make_read_only()
+	_trace_frame_events.make_read_only()
+	engine_snapshot.make_read_only()
+	var load_snapshot := _trace_load_snapshot()
+	load_snapshot.make_read_only()
 	var frame_summary := {
 		"frame": _trace_frame_index,
 		"delta_ms": delta * 1000.0,
 		"known_ms": float(known_us) / 1000.0,
 		"unaccounted_ms": maxf(delta * 1000.0 - float(known_us) / 1000.0, 0.0),
 		"physics_ticks": _trace_physics_ticks,
-		"buckets_us": _trace_frame_us.duplicate(),
-		"counts": _trace_frame_counts.duplicate(),
-		"events": _trace_frame_events.duplicate(),
-		"load": _trace_load_snapshot(),
+		"buckets_us": _trace_frame_us,
+		"counts": _trace_frame_counts,
+		"events": _trace_frame_events,
+		"load": load_snapshot,
 		"engine": engine_snapshot,
 	}
+	frame_summary.make_read_only()
 	_trace_frame_deltas_ms.append(delta * 1000.0)
 	var is_slow := delta > FRAME_BUDGET_S
 	if is_slow:
@@ -344,7 +352,7 @@ func _finalize_trace_frame(delta: float, engine_snapshot: Dictionary) -> void:
 		if _trace_spikes.size() >= FRAME_TRACE_MAX_SPIKES:
 			_trace_dropped_spikes += 1
 		else:
-			_trace_spikes.append(frame_summary.duplicate(true))
+			_trace_spikes.append(frame_summary)
 	_update_trace_context(frame_summary, is_slow)
 	_trace_recent_frames.append(_compact_trace_frame(frame_summary))
 	if _trace_recent_frames.size() > FRAME_TRACE_PRE_CONTEXT_FRAMES:
@@ -357,8 +365,8 @@ func _update_trace_context(frame_summary: Dictionary, is_slow: bool) -> void:
 	if is_slow and _trace_active_context.is_empty() \
 			and _trace_context_windows.size() < FRAME_TRACE_MAX_CONTEXT_WINDOWS:
 		var pre_frames: Array[Dictionary] = []
-		for prior in _trace_recent_frames:
-			pre_frames.append(prior.duplicate(true))
+		# 帧及嵌套数值字典均只读；只复制索引，不在尖峰后复制120帧的全部桶。
+		pre_frames.assign(_trace_recent_frames)
 		_trace_active_context = {
 			"start_frame": int(frame_summary["frame"]) - pre_frames.size(),
 			"pre_frames": pre_frames.size(),
@@ -391,25 +399,13 @@ func _update_trace_context(frame_summary: Dictionary, is_slow: bool) -> void:
 
 
 func _compact_trace_frame(frame_summary: Dictionary) -> Dictionary:
-	return {
-		"frame": int(frame_summary.get("frame", 0)),
-		"delta_ms": float(frame_summary.get("delta_ms", 0.0)),
-		"known_ms": float(frame_summary.get("known_ms", 0.0)),
-		"physics_ticks": int(frame_summary.get("physics_ticks", 0)),
-		"buckets_us": (frame_summary.get("buckets_us", {}) as Dictionary).duplicate(),
-		"counts": (frame_summary.get("counts", {}) as Dictionary).duplicate(),
-		"events": (frame_summary.get("events", {}) as Dictionary).duplicate(),
-		"load": (frame_summary.get("load", {}) as Dictionary).duplicate(),
-		"engine": (frame_summary.get("engine", {}) as Dictionary).duplicate(),
-	}
+	return frame_summary
 
 
 func _trace_known_root_us() -> int:
 	var total := 0
-	for bucket_name in FRAME_TRACE_ROOT_BUCKETS:
-		total += int(_trace_frame_us.get(bucket_name, 0))
-	if extended_cpu_trace_enabled:
-		for bucket_name in EXTENDED_CPU_TRACE_ROOT_BUCKETS:
+	for bucket_name in _trace_frame_us:
+		if _trace_root_total_us.has(bucket_name):
 			total += int(_trace_frame_us.get(bucket_name, 0))
 	return total
 

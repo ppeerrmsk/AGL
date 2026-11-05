@@ -29,7 +29,7 @@ func _ready() -> void:
 		_check("沙漠正式入口完成初始化", false)
 		mode.queue_free()
 		await get_tree().process_frame
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 
 	_check("沙漠正式入口构造地图与战区", mode._map_id == "desert_railway_preview"
@@ -518,7 +518,7 @@ func _ready() -> void:
 	mode.queue_free()
 	for _frame in range(3):
 		await get_tree().process_frame
-	get_tree().quit(0 if _fail == 0 else 1)
+	AudioManager.request_quit(0 if _fail == 0 else 1)
 
 
 func _check(label: String, condition: bool, detail: String = "") -> void:

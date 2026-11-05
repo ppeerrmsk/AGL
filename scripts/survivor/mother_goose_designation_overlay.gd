@@ -11,6 +11,8 @@
 class_name MotherGooseDesignationOverlay
 extends Node2D
 
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
+
 var boss_unit: Aircraft = null
 var player_ref: Aircraft = null
 var designation: MotherGooseDesignation = null
@@ -18,6 +20,7 @@ var _last_drawing: bool = false
 
 
 func _ready() -> void:
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	z_index = -4  ## 比 shield_overlay 略上层，但仍在飞机图标之下
 	z_as_relative = false
 
@@ -41,8 +44,8 @@ func _draw() -> void:
 		return
 	if player_ref == null or not is_instance_valid(player_ref) or player_ref.is_destroyed:
 		return
-	var a: Vector2 = boss_unit.global_position
-	var b: Vector2 = player_ref.global_position
+	var a: Vector2 = to_local(DisplayPacing.display_origin(boss_unit))
+	var b: Vector2 = to_local(DisplayPacing.display_origin(player_ref))
 	var col: Color
 	var w: float
 	var ring_r: float

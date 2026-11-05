@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "origin": [
+    -16300,
+    -15700
+  ],
+  "step": 8,
+  "width": 4000,
+  "tiles": 256,
+  "triangles": {
+    "green": 634786,
+    "land": 30019,
+    "park": 122525,
+    "paved": 305749,
+    "rail_yard": 9447
+  },
+  "source_sha256": "21f1cde3cebe4fbb274ce7d399edb2762992861eaf9e093012323e3e02fd18df",
+  "sha256": "3ed80b32bf2fa4ba79b1185c68f0198e25b6ef6c674244979da411ea8ae4d7ca"
+}

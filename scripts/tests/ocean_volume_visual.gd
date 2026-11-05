@@ -32,7 +32,7 @@ func _run() -> void:
 	var initial_orphans := Node.get_orphan_node_ids()
 	if not OS.get_user_data_dir().replace("\\", "/").contains("/tmp/ocean-volume/profile/"):
 		push_error("ocean menu test requires isolated tmp/ocean-volume/profile")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	tree.current_scene = null
 	for key in ["bench_mode", "bench_scenario", "bench_duration", "external_volume_experiment"]:
@@ -141,7 +141,7 @@ func _run() -> void:
 			if typeof(orphan) == TYPE_OBJECT and is_instance_valid(orphan):
 				var script: Script = orphan.get_script()
 				print("[Ocean orphan] id=", identity, " name=", orphan.name, " script=", script.resource_path if script != null else "native")
-	tree.quit(1 if _fail else 0)
+	AudioManager.request_quit(1 if _fail else 0)
 
 
 func _capture_msaa_pair(overlay: Node, label: String) -> void:
@@ -172,7 +172,7 @@ func _wait_scene(path: String) -> bool:
 				print("[Ocean scene orphans] ", path, " ", Node.get_orphan_node_ids())
 			return true
 	_check(false, "timeout entering " + path)
-	get_tree().quit(1)
+	AudioManager.request_quit(1)
 	return false
 
 

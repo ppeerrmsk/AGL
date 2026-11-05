@@ -56,7 +56,7 @@ func _ready() -> void:
 	var metadata: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://resources/maps/tokyo_bay_bg.json"))
 	if not _raster_source.setup(_raster_camera, Archive.source_rect(metadata), "tokyo"):
 		push_error("Tokyo volume preview could not initialize the official tile renderer")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	_map_root.name = "TokyoVolumePreview"
 	add_child(_map_root)
@@ -64,7 +64,7 @@ func _ready() -> void:
 	_geometry_root.name = "StaticCityBatches"
 	_map_root.add_child(_geometry_root)
 	if not _load_geometry():
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	_set_view(preview_center, overview_zoom)
 	set_process(false)
@@ -193,7 +193,7 @@ func _capture_sequence() -> void:
 		file.store_string(JSON.stringify(report, "\t") + "\n")
 		file.close()
 	print("[TokyoVolumePreview] capture report=%s failed=%s" % [report, failed])
-	get_tree().quit(1 if failed else 0)
+	AudioManager.request_quit(1 if failed else 0)
 
 
 func _settle() -> bool:

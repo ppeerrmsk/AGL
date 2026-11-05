@@ -58,7 +58,7 @@ func _ready() -> void:
 	var output := "res://bench/results/support_range_visual.png"
 	var error := get_viewport().get_texture().get_image().save_png(output)
 	print("[support_range_visual] screenshot=%s err=%d" % [output, error])
-	get_tree().quit(0 if error == OK else 1)
+	AudioManager.request_quit(0 if error == OK else 1)
 
 
 func _add_label(text: String, position: Vector2, font_size: int, color: Color) -> void:

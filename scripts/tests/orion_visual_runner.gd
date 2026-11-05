@@ -41,7 +41,7 @@ func _process(delta: float) -> void:
 		var host: Aircraft = boss.orion.body()
 		if host != null:
 			_camera_ctrl.follow_enabled = false
-			camera.global_position = host.global_position
+			camera.global_position = preload("res://scripts/util/display_pacing.gd").display_origin(host)
 			_bench_set_camera_zoom(0.65)
 		_orion_frames += 1
 		_orion_peak_missiles = maxi(_orion_peak_missiles, boss.orion._owned_missile_ids.size())

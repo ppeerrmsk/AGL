@@ -18,8 +18,13 @@ var diagnostic_cap := 16
 var page_sink: Callable
 var current_roots := false
 var eligible_leaf: Callable
+var refine_branches := false
+var recorded_plans: Dictionary={}
+var _active_cuts: Dictionary={}
 var split_plan: Dictionary = {}
 var leaf_split_plans: Dictionary = {}
+var split_balance := "median"
+var split_aspect := 1.0
 
 
 static func planned_cut(plan: Dictionary, path: String) -> Dictionary:
@@ -28,7 +33,27 @@ static func planned_cut(plan: Dictionary, path: String) -> Dictionary:
 	if not hint is Dictionary or not contract.integer(hint.get("axis")) \
 		or int(hint.axis) not in [0,1] or typeof(hint.get("threshold")) not in [TYPE_INT,TYPE_FLOAT] \
 		or not is_finite(float(hint.threshold)): return {}
+	if hint.get("metric","centroid") not in ["centroid","extent"]: return {}
+	if hint.get("metric","")=="extent" and (int(hint.axis)!=0 or float(hint.threshold)<=0): return {}
 	return hint
+
+
+static func partition_owners(mesh: ArrayMesh, hint: Dictionary) -> PackedInt32Array:
+	var owners := PackedInt32Array()
+	if hint.get("metric","centroid")=="centroid":
+		for point: Vector2 in Split.centers(mesh): owners.append(int(point[int(hint.axis)]>=float(hint.threshold)))
+		return owners
+	if mesh.get_surface_count()==0: return owners
+	var arrays := mesh.surface_get_arrays(0)
+	var positions: PackedVector3Array=arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array=arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX]!=null else PackedInt32Array()
+	var count := positions.size() if indices.is_empty() else indices.size()
+	for offset in range(0,count,3):
+		var first: Vector3=positions[offset if indices.is_empty() else indices[offset]]
+		var box := AABB(first,Vector3.ZERO)
+		for corner in range(1,3): box=box.expand(positions[offset+corner if indices.is_empty() else indices[offset+corner]])
+		owners.append(int(maxf(box.size.x,box.size.z)>=float(hint.threshold)))
+	return owners
 
 
 static func export_cut(native: RefCounted, cut: Dictionary, directory: String) -> Dictionary:
@@ -55,7 +80,8 @@ static func export_cut(native: RefCounted, cut: Dictionary, directory: String) -
 
 func select(native: RefCounted, center: Vector2, scale_value: float, rotation_value: float,
 		size: Vector2, configuration: String, depth: int) -> Dictionary:
-	if depth<1 or depth>4 or branching not in [2,4] or diagnostic_cap not in [16,24] or failed: return {}
+	if depth<1 or depth>(8 if refine_branches else 4) or branching not in [2,4] or diagnostic_cap not in [16,24] or split_balance not in ["median","area","sah"] or failed: return {}
+	if not is_finite(split_aspect) or split_aspect<0.25 or split_aspect>4.0: return {}
 	if configuration.is_empty(): configuration="lod%d_full" % Archive.choose_level(-1,scale_value)
 	var canvas := Transform2D(rotation_value,Vector2.ZERO).scaled(Vector2.ONE*scale_value)
 	canvas.origin=size*0.5-canvas*center
@@ -87,13 +113,19 @@ func select(native: RefCounted, center: Vector2, scale_value: float, rotation_va
 func _refine(entry: Dictionary, native: RefCounted, view: Rect2, canvas: Transform2D,
 		size: Vector2, roof: Vector2, depth: int) -> Dictionary:
 	if failed or int(Select.visible(entry,view,canvas,size,roof,Vector2.ZERO).faces)==0: return entry
-	if not entry.children.is_empty():
+	if not entry.children.is_empty() and not (refine_branches and eligible_leaf.is_valid() and eligible_leaf.call(entry)):
 		var parent := entry.duplicate()
 		parent.children=[]
 		for child: Dictionary in entry.children: parent.children.append(_refine(child,native,view,canvas,size,roof,depth))
 		return parent
 	# 增量制作先排除正式楼/已有替换；成本求解必须保留原页，不能先假设可拆再写出失败。
 	if eligible_leaf.is_valid() and not eligible_leaf.call(entry): return entry
+	# 每个完整来源只细分到各自绑定计划需要的深度，避免为少数热点放大全图资源。
+	var requested_depth: Variant=leaf_split_plans.get(entry.path,{}).get("split_depth",depth)
+	if not preload("res://scripts/rendering/tokyo_hlod_manifest.gd").integer(requested_depth) or int(requested_depth)<1 or int(requested_depth)>depth:
+		failed=true
+		return entry
+	depth=int(requested_depth)
 	var key := str(entry.path)+":"+str(depth)+":"+str(branching)
 	if _cache.has(key): return _cache[key]
 	var row: Dictionary = native.pages[entry.path]
@@ -107,9 +139,11 @@ func _refine(entry: Dictionary, native: RefCounted, view: Rect2, canvas: Transfo
 			return entry
 	var previous_plan := split_plan
 	split_plan=leaf_split_plans.get(entry.path,{}).get("cuts",previous_plan)
+	_active_cuts={}
 	var result := _split(entry,meshes,depth)
 	split_plan=previous_plan
 	if failed: return entry
+	if branching==2: recorded_plans[entry.path]={"tree_sha256":var_to_bytes(entry).hex_encode().sha256_text(),"split_depth":depth,"cuts":_active_cuts.duplicate(true)}
 	refined_leaves+=1
 	_cache[key]=result
 	return result
@@ -123,29 +157,37 @@ func _split(entry: Dictionary, meshes: Array[ArrayMesh], depth: int) -> Dictiona
 	var cuts := Split.cuts(meshes)
 	var axis := 0
 	var threshold := float(cuts[0])
+	var metric := "centroid"
 	if branching==2 and not split_plan.is_empty():
 		var hint := planned_cut(split_plan,str(entry.path))
 		if hint.is_empty():
 			failed=true
 			return entry
-		axis=int(hint.axis);threshold=float(hint.threshold)
+		axis=int(hint.axis);threshold=float(hint.threshold);metric=String(hint.get("metric","centroid"))
 	elif branching==2:
 		var centers := PackedVector2Array()
 		for mesh: ArrayMesh in meshes: centers.append_array(Split.centers(mesh))
 		if centers.is_empty(): return entry
 		var bounds := Rect2(centers[0],Vector2.ZERO)
 		for point: Vector2 in centers: bounds=bounds.expand(point)
-		axis=0 if bounds.size.x>=bounds.size.y else 1
+		axis=0 if bounds.size.x/split_aspect>=bounds.size.y else 1
 		var coordinates := PackedFloat32Array()
 		for point: Vector2 in centers: coordinates.append(point[axis])
 		coordinates.sort()
 		threshold=coordinates[coordinates.size()/2]
+		if split_balance=="area": threshold=bounds.position[axis]+bounds.size[axis]*0.5
+		elif split_balance=="sah":
+			var hint := preload("res://scripts/tests/tokyo_partition_sah.gd").choose(meshes)
+			if not hint.is_empty(): axis=int(hint.axis);threshold=float(hint.threshold)
+	if branching==2:
+		_active_cuts[entry.path]={"axis":axis,"threshold":threshold}
+		if metric!="centroid": _active_cuts[entry.path]["metric"]=metric
 	var layers: Array = []
-	for mesh: ArrayMesh in meshes:
+	for kind in meshes.size():
+		var mesh: ArrayMesh=meshes[kind]
 		var pieces: Array[ArrayMesh]
 		if branching==2:
-			var owners := PackedInt32Array()
-			for point: Vector2 in Split.centers(mesh): owners.append(int(point[axis]>=threshold))
+			var owners := partition_owners(mesh,{"axis":axis,"threshold":threshold,"metric":metric})
 			pieces=Split.partition(mesh,owners,2)
 		else: pieces=Split.split(mesh,cuts)
 		if pieces.size()!=branching or not Join.conserved(mesh,pieces):

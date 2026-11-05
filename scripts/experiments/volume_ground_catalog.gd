@@ -82,7 +82,7 @@ static func build(key: String, detailed: bool = true) -> ArrayMesh:
 			for x in [-4.5, -1.5, 1.5, 4.5]:
 				b.box(Vector3(x, 6, -2.4), Vector3(.3, 4.2, .2), EDGE)
 	else:
-		var size := Vector2(18, 24) if key in ["sam", "radar"] else Vector2(14, 16)
+		var size := Vector2(18, 32) if key in ["sam", "radar"] else Vector2(14, 24)
 		if key == "siege_tank":
 			size = Vector2(70, 48)
 		_chassis(b, size, detailed)

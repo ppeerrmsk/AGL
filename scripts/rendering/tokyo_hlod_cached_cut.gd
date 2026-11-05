@@ -5,7 +5,7 @@ const Select := preload("res://scripts/experiments/tokyo_spatial_select.gd")
 const MapProjection := preload("res://scripts/experiments/volume_projection.gd")
 
 
-static func candidate_catalogs(catalogs: Array[Dictionary], preferred: int, previous: int, scale: float) -> PackedInt32Array:
+static func candidate_catalogs(catalogs: Array[Dictionary], preferred: int, previous: int, scale: float, nearest_first: bool = false) -> PackedInt32Array:
 	var result := PackedInt32Array()
 	if not is_finite(scale) or scale<=0.0: return result
 	for index: int in [preferred,previous]:
@@ -17,6 +17,13 @@ static func candidate_catalogs(catalogs: Array[Dictionary], preferred: int, prev
 		if nearest<0 or float(catalogs[index].max_scale)<float(catalogs[nearest].max_scale): nearest=index
 	# 每次最多三档；没有完整合格缓存就报告失败，不能无界搜索拖住游戏帧。
 	if nearest>=0: result.append(nearest)
+	if nearest_first:
+		# 所有候选仍须满足原 max_scale；先试贴近实际尺度的目录，避免拉远后
+		# 先为旧近景目录重建庞大的驻留树。失败仍检查其余合格缓存。
+		var ordered: Array[int]=[]
+		ordered.assign(result)
+		ordered.sort_custom(func(a: int,b: int) -> bool: return float(catalogs[a].max_scale)<float(catalogs[b].max_scale))
+		return PackedInt32Array(ordered)
 	return result
 
 
@@ -34,7 +41,9 @@ static func select(catalog: Dictionary, center: Vector2, scale: float, angle: fl
 	var context := {"view":view,"canvas":canvas,"size":size,"roof":-Vector2(ray.x,ray.z)/ray.y,
 		"geometry":geometry,"meshes":meshes,"textures":textures}
 	var roots: Array[Dictionary]=[]
-	for entry: Dictionary in Contract.qualified_roots(catalog,scale,work): roots.append(_resident_tree(entry,context))
+	# 普通目录的资格由目录上限统一声明，原始行没有逐页max_scale；只有混合目录求资格树。
+	var qualified: Array=Contract.qualified_roots(catalog,scale,work) if catalog.get("mixed_scales",false) else catalog.roots
+	for entry: Dictionary in qualified: roots.append(_resident_tree(entry,context))
 	var resident := catalog.duplicate()
 	resident["roots"]=roots
 	resident["min_scale"]=minf(float(catalog.min_scale),scale)
@@ -60,6 +69,13 @@ static func _resident_tree(entry: Dictionary, context: Dictionary) -> Dictionary
 
 
 static func native_tree(entry: Dictionary, context: Dictionary) -> Dictionary:
+	if context.has("possible") and not context.possible.has(entry.path):
+		# 整个子树没有任何已驻留物理组件。保留原几何范围与失败费用，
+		# 只免去不可能成功的后代遍历；禁止删掉此节点而伪造完整覆盖。
+		var unavailable := entry.duplicate()
+		unavailable["bytes"]=192*1024*1024+1
+		unavailable.erase("children");unavailable.erase("alternative_children")
+		return unavailable
 	var visible := Select.visible(entry,context.view,context.canvas,context.size,context.roof,Vector2.ZERO)
 	if visible.faces==0: return entry
 	var result := entry.duplicate()
@@ -77,4 +93,10 @@ static func native_tree(entry: Dictionary, context: Dictionary) -> Dictionary:
 		var children: Array[Dictionary]=[]
 		for child: Dictionary in entry.children: children.append(native_tree(child,context))
 		result["children"]=children
+	if entry.has("alternative_children"):
+		result["alternative_children"]=[]
+		for alternative: Array in entry.alternative_children:
+			var children: Array[Dictionary]=[]
+			for child: Dictionary in alternative: children.append(native_tree(child,context))
+			result.alternative_children.append(children)
 	return result

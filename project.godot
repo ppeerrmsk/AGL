@@ -51,14 +51,15 @@ locale/fallback="zh"
 
 [physics]
 
-common/physics_interpolation=true
 common/max_physics_steps_per_frame=2
 3d/physics_engine="Jolt Physics"
+common/physics_interpolation=true
 
 [rendering]
 
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-tokyo_map/installed_package="res://resources/maps/tokyo_playable/m20/package.json"
-tokyo_map/installed_packs=PackedStringArray("maps/tokyo_playable_m20.pck")
+tokyo_map/installed_package="res://resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json"
+tokyo_map/installed_packs=PackedStringArray("maps/tokyo_playable_m20.pck", "maps/tokyo_playable_m20_f5_candidate_20261026.pck")
+tokyo_map/streaming_optimization_enabled=true

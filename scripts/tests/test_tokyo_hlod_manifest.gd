@@ -37,13 +37,105 @@ static func fixture() -> Dictionary:
 	return {"schema":1,"roots":16,"nodes":336,"native_saved_roundtrip":true,"input_sha256":"d".repeat(64),"rows":rows,"min_scale":0.05,"max_scale":0.1}
 
 
+static func stable_leaf_checks() -> bool:
+	var data := fixture()
+	data.max_scale=2.0
+	var catalog := Contract.normalize(data)
+	var work := {"background":true,"epoch":1,"display_limit":96*1024*1024,"native_page_limit":16,"stable_hlod_leaves":true}
+	var center := Vector2(-12000,-12000)
+	var size := Vector2(6000,6000)
+	var plain := Contract.select(catalog,center,1.0,0,size)
+	var stable := Contract.select(catalog,center,1.0,0,size,false,96*1024*1024,work)
+	if not stable.get("stable_leaves",false) or not stable.within_budget or stable.keys.size()!=16 or stable.keys==plain.keys: return false
+	for key: String in stable.keys:
+		if int(catalog.rows[key].depth)!=2: return false
+	var moved := Contract.select(catalog,center+Vector2(64,0),1.01,0,size,false,96*1024*1024,work)
+	if moved.keys!=stable.keys: return false
+	var small := Contract.select(catalog,center,1.0,0,size,false,int(stable.bytes)-1,work)
+	if small.within_budget or small.keys!=stable.keys: return false
+	# 全图的256叶块超过16页时走原求解器，不能截断为前16页。
+	var wide := Contract.select(catalog,Contract.ORIGIN+Vector2.ONE*16000,1.0,0,Vector2.ONE*32000,false,96*1024*1024,work)
+	if wide.get("stable_leaves",false) or not wide.within_budget or wide.keys.size()!=16: return false
+	# 一片不可用叶块不能当成空白丢掉；原来完整的合格父页仍可接管。
+	var unavailable := catalog.duplicate(true)
+	unavailable.roots[0].children[0].children[0].bytes=192*1024*1024+1
+	var fallback := Contract.select(unavailable,center,1.0,0,size,false,96*1024*1024,work)
+	return not fallback.get("stable_leaves",false) and fallback.within_budget and not fallback.keys.is_empty()
+
+
+static func stable_tile_checks() -> bool:
+	var data := fixture()
+	data.min_scale=0.17;data.max_scale=0.25
+	var catalog := Contract.normalize(data)
+	var original := var_to_bytes(catalog)
+	var work := {"background":true,"epoch":1,"display_limit":96*1024*1024,"native_page_limit":16,"stable_hlod_leaves":true,"stable_hlod_tiles":true}
+	var cut := Contract.select(catalog,Vector2.ZERO,0.2,0,Vector2(1920,1080),false,96*1024*1024,work)
+	if cut.is_empty() or not cut.within_budget or cut.get("stable_tile_depth",-1)!=1 or cut.keys.size()>16: return false
+	for key: String in cut.keys:
+		if int(catalog.rows[key].depth)!=1: return false
+	var moved := Contract.select(catalog,Vector2(64,64),0.2,0,Vector2(1920,1080),false,96*1024*1024,work)
+	if moved.keys!=cut.keys or not moved.within_budget: return false
+	if not preload("res://scripts/rendering/tokyo_hlod_handoff.gd").covers_motion_view(catalog,moved,Vector2(64,64),0.2,0,Vector2(1920,1080)): return false
+	if Contract.select(catalog,Vector2.ZERO,0.2,0,Vector2(1920,1080),false,int(cut.bytes)-1,work).within_budget: return false
+	# 全图固定中层超过16页时回到完整选择，绝不能截掉后续页。
+	var wide := Contract.select(catalog,Vector2.ZERO,0.2,0,Vector2(6400,6400),false,96*1024*1024,work)
+	if not wide.within_budget or wide.get("stable_tile_depth",-1)==1: return false
+	work["stable_hlod_tiles_only"]=true
+	if not Contract.select(catalog,Vector2.ZERO,0.2,0,Vector2(6400,6400),false,96*1024*1024,work).is_empty(): return false
+	# 固定中层超费用时只拆少数边缘，检查完整投影和费用，不允许少取可见块冒充成功。
+	var heavy := data.duplicate(true)
+	for row: Dictionary in heavy.rows:
+		if int(row.depth)==1: row.native_geometry.bytes=16*1024*1024
+	var heavy_catalog := Contract.normalize(heavy)
+	var heavy_before := var_to_bytes(heavy_catalog)
+	var pose := Vector2(-1000,-1000)
+	var viewport := Vector2(1920,1080)
+	if not Contract.select(heavy_catalog,pose,0.2,0,viewport,false,96*1024*1024,work).is_empty(): return false
+	work["stable_hlod_refine"]=true
+	var refined := Contract.select(heavy_catalog,pose,0.2,0,viewport,false,96*1024*1024,work)
+	if refined.is_empty() or not refined.within_budget or refined.keys.size()>16: return false
+	var parents := 0
+	var children := 0
+	for key: String in refined.keys:
+		parents+=int(int(heavy_catalog.rows[key].depth)==1)
+		children+=int(int(heavy_catalog.rows[key].depth)==2)
+	if parents==0 or children==0 or not preload("res://scripts/rendering/tokyo_hlod_handoff.gd").covers_motion_view(heavy_catalog,refined,pose,0.2,0,viewport): return false
+	if var_to_bytes(heavy_catalog)!=heavy_before: return false
+	if Contract.select(heavy_catalog,pose,0.2,0,viewport,false,int(refined.bytes)-1,work).within_budget: return false
+	return var_to_bytes(catalog)==original
+
+
 static func checks() -> bool:
+	if not stable_tile_checks():
+		print("[Tokyo stable tiles] failed")
+		return false
+	if not stable_leaf_checks():
+		print("[Tokyo stable leaves] failed")
+		return false
 	if not preload("res://scripts/tests/build_tokyo_hlod_opaque.gd").checks():
 		print("[Opaque] converter checks failed")
 		return false
 	if Contract.integer(NAN) or Contract.integer(1.5) or Contract.sha("z".repeat(64)) \
 		or not Contract.normalize(null).is_empty() or not Contract.normalize({}).is_empty(): return false
 	var source := fixture()
+	var summary := source.duplicate(true)
+	summary.max_scale=0.4
+	summary["far_summary_recipe"]={"path":"res://fixture/far.json","sha256":"a".repeat(64)}
+	if Contract.normalize(summary).get("far_summary_recipe",{})!=summary.far_summary_recipe: return false
+	summary.max_scale=0.8
+	if Contract.normalize(summary).is_empty(): return false
+	summary.max_scale=0.800001
+	if not Contract.normalize(summary).is_empty(): return false
+	summary.max_scale=10.0
+	summary["resident_motion_summary"]={"schema":1,"preferred_max_scale":0.8,"formal_unchanged":true}
+	if not Contract.normalize(summary).has("resident_motion_summary"): return false
+	summary.resident_motion_summary.formal_unchanged=false
+	if not Contract.normalize(summary).is_empty(): return false
+	summary.resident_motion_summary.formal_unchanged=true;summary.max_scale=10.01
+	if not Contract.normalize(summary).is_empty(): return false
+	summary.erase("resident_motion_summary")
+	summary.max_scale=0.4;summary.far_summary_recipe.sha256="broken"
+	if not Contract.normalize(summary).is_empty(): return false
 	var massing := source.duplicate(true)
 	massing["middle_massing_recipe"]={"path":"res://fixture/recipe.json","sha256":"a".repeat(64)}
 	if not Contract.normalize(massing).is_empty(): return false

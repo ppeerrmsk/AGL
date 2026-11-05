@@ -44,7 +44,7 @@ func _ready() -> void:
 	var ea6b_error := _ea6b_symmetry_error()
 	if ea6b_error < 0.0 or ea6b_error > 0.08:
 		push_error("[aircraft_silhouette_visual] EA-6B silhouette incomplete/asymmetric: %.3f" % ea6b_error)
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	var background := ColorRect.new()
 	background.color = Color("071018")
@@ -64,7 +64,7 @@ func _ready() -> void:
 		var resource := load(String(sample.path)) as AircraftParams
 		if resource == null:
 			push_error("[aircraft_silhouette_visual] missing params: %s" % sample.path)
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		var column := index % 6
 		var row := index / 6
@@ -78,7 +78,7 @@ func _ready() -> void:
 			var profile := load(String(sample.profile)) as PlayableAircraft
 			if profile == null:
 				push_error("[aircraft_silhouette_visual] missing profile: %s" % sample.profile)
-				get_tree().quit(1)
+				AudioManager.request_quit(1)
 				return
 			PlayableSetup.deep_dup_weapons(aircraft.params)
 			PlayableSetup.apply(aircraft, profile)
@@ -107,7 +107,7 @@ func _ready() -> void:
 	var error := get_viewport().get_texture().get_image().save_png(output)
 	print("[aircraft_silhouette_visual] screenshot=%s err=%d samples=%d ea6b_symmetry=%.3f" % [
 		output, error, SAMPLES.size(), ea6b_error])
-	get_tree().quit(0 if error == OK else 1)
+	AudioManager.request_quit(0 if error == OK else 1)
 
 
 ## 防止三视图裁切再次把半边识别图当成正式轮廓；0=完全对称，1=单侧缺失。

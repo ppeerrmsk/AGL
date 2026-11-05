@@ -537,7 +537,7 @@ func _spawn_atmosphere_helicopter(zone_id: StringName, center: Vector2, radius: 
 class ArtilleryPlanSearch extends RefCounted:
 	const RING_MULTS: Array[float] = [1.0, 0.65, 0.35, 0.0]
 	const CANDIDATES := 16
-	const ELLIPSE_SAMPLES := 16
+	const ROUTE_SCALES := [1.0, 0.25, 0.0]
 
 	var center: Vector2
 	var radius: float
@@ -550,6 +550,8 @@ class ArtilleryPlanSearch extends RefCounted:
 	var _base_angle := 0.0
 	var _offset_radius := 0.0
 	var _start_step := 0
+	var _route_scale := 0
+	var _sample_count := 1
 	var _ring := 0
 	var _candidate := 0
 	var _candidate_ready := false
@@ -598,7 +600,10 @@ class ArtilleryPlanSearch extends RefCounted:
 			_count_ready = true
 			return
 		if _ring >= RING_MULTS.size():
-			count -= 1
+			_route_scale += 1
+			if _route_scale >= ROUTE_SCALES.size():
+				count -= 1
+				_route_scale = 0
 			_count_ready = false
 			return
 		if not _candidate_ready:
@@ -636,6 +641,9 @@ class ArtilleryPlanSearch extends RefCounted:
 				ZoneAtmosphereCombat.ARTILLERY_ROUTE_HALF_MAX_PX)
 			var half_width := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_ROUTE_WIDTH_MIN_PX,
 				ZoneAtmosphereCombat.ARTILLERY_ROUTE_WIDTH_MAX_PX)
+			half_length *= float(ROUTE_SCALES[_route_scale])
+			half_width *= float(ROUTE_SCALES[_route_scale])
+			_sample_count = maxi(1, ceili(TAU * half_length / 4.0))
 			var phase := fposmod(_group_phase + float(i) * TAU / maxf(float(count), 1.0) \
 				+ rng.randf_range(-ZoneAtmosphereCombat.ARTILLERY_PHASE_JITTER_RAD,
 					ZoneAtmosphereCombat.ARTILLERY_PHASE_JITTER_RAD), TAU)
@@ -651,13 +659,14 @@ class ArtilleryPlanSearch extends RefCounted:
 			_point = 0
 			_track_ready = true
 			return
-		if _point < ELLIPSE_SAMPLES:
-			# 与原 _land_ellipse_valid 同一判定：轨道椭圆 16 个相位逐点验陆地与战区内圈。
-			var sample_phase := float(_point) * TAU / 16.0
+		if _point < _sample_count:
+			# 轨道采样间距上界4px；额外2px净空覆盖相邻样本之间的连续曲线。
+			var sample_phase := float(_point) * TAU / float(_sample_count)
 			var track_center: Vector2 = _track["center"]
 			var pos := track_center + _route_axis * cos(sample_phase) * float(_track["half_length"]) \
 				+ _lateral * sin(sample_phase) * float(_track["half_width"])
-			if pos.distance_to(center) > radius * 0.9 or not MapGeography.is_ground_spawn_safe(pos):
+			if pos.distance_to(center) > radius * 0.9 or not MapGeography.is_ground_spawn_safe(pos) \
+					or not MapGeography.is_ground_footprint_clear(pos, 7.0):
 				_next_candidate()
 			else:
 				_point += 1

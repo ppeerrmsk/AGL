@@ -2,6 +2,14 @@ class_name NavalUnit
 extends CombatUnit
 const FrameRedraw := preload("res://scripts/rendering/visual_redraw_queue.gd")
 
+const Water := preload("res://scripts/naval/naval_water.gd")
+## 一次岸线校验认证8px移动圆；正常船速下约1Hz重查，停船失败候选直接复用。
+const WATER_CACHE_TRAVEL_PX := 8.0
+var _water_safe_center := Vector2.INF
+var _water_blocked_position := Vector2.INF
+var _water_revision := -1
+var _water_hull_radius := -1.0
+
 const MOUNT_DETAIL_MIN_VIEW_SCALE: float = 0.26
 
 ## 海上单位基类 —— 所有船（FFG / DDG / CG / CV / SS）的公共骨架
@@ -89,7 +97,7 @@ var _followers: Array = []
 ## patrol_center = INF 时该模式关闭，走原来的 waypoints 逻辑。
 var patrol_center: Vector2 = Vector2.INF
 var patrol_radius: float = 0.0
-const PATROL_LOOKAHEAD_RAD: float = 0.25   ## 圆周前视 carrot 角（≈14°），越小越贴圆、越大越平滑
+const PATROL_LOOKAHEAD_RAD: float = 0.25   ## 仅偏离预检圆时的恢复引导；正常巡航按精确圆弧推进
 
 # ── 视觉 ──
 var _font: Font
@@ -307,7 +315,7 @@ func _update_movement(delta: float) -> void:
 		return
 
 	# ──── 编队模式（刚体跟随 leader）────
-	# 僚舰直接复制 leader 的 heading/speed，位置用弹簧力修正到理想偏移位置
+	# 僚舰复制 leader 的 heading/speed，位置刚性绑定并经过船体水域硬闸
 	# 这样整支舰队作为"一个刚体"移动，不会出现僚舰各自物理打转、撞船、拉开队形
 	if formation_leader != null:
 		if not is_instance_valid(formation_leader) or formation_leader.is_destroyed:
@@ -321,6 +329,22 @@ func _update_movement(delta: float) -> void:
 	# 偏离圆周时 carrot 自动把船拉回来，不需要额外的到达判定。
 	if patrol_center != Vector2.INF and patrol_radius > 1.0:
 		var to_c := global_position - patrol_center
+		# 规划校验的是精确同心圆。小圈必须降速满足转率，不能由carrot追踪切弦/甩出圈。
+		if absf(to_c.length() - patrol_radius) <= 1.0:
+			var angular_speed := minf(params.max_sea_speed * PIXELS_PER_METER / patrol_radius,
+				_effective_turn_rate())
+			var angle := to_c.angle() + angular_speed * delta
+			var next_position := patrol_center + Vector2.from_angle(angle) * patrol_radius
+			var next_heading := angle - PI
+			if _fleet_water_clear(next_position, next_heading):
+				global_position = next_position
+				heading = next_heading
+				rotation = heading
+				speed = angular_speed * patrol_radius / PIXELS_PER_METER
+				target_position = next_position
+			else:
+				speed = 0.0
+			return
 		var ang := atan2(to_c.y, to_c.x) + PATROL_LOOKAHEAD_RAD
 		target_position = patrol_center + Vector2(cos(ang), sin(ang)) * patrol_radius
 	# ──── waypoints 模式（独立巡航：旗舰 / 无主船）────
@@ -343,11 +367,15 @@ func _update_movement(delta: float) -> void:
 	var target_heading := atan2(to_target.x, -to_target.y)
 	var diff := angle_difference(heading, target_heading)
 	var turn_rate := _effective_turn_rate()
-	heading += clampf(diff, -turn_rate * delta, turn_rate * delta)
-
+	var next_heading := heading + clampf(diff, -turn_rate * delta, turn_rate * delta)
+	var vel := Vector2(sin(next_heading), -cos(next_heading)) * params.max_sea_speed * PIXELS_PER_METER
+	var next_position := global_position + vel * delta
+	if not _fleet_water_clear(next_position, next_heading):
+		speed = 0.0
+		return
+	heading = next_heading
 	speed = params.max_sea_speed
-	var vel := Vector2(sin(heading), -cos(heading)) * speed * PIXELS_PER_METER
-	global_position += vel * delta
+	global_position = next_position
 	rotation = heading
 
 ## 编队刚体跟随 —— 位置/朝向/速度全部刚性绑定 leader
@@ -363,9 +391,13 @@ func _update_formation_follow(_delta: float) -> void:
 	var lead_stb := Vector2(cos(leader.heading), sin(leader.heading))
 
 	# 位置：跟 leader heading 同步旋转的刚体偏移
-	global_position = leader.global_position \
+	var next_position := leader.global_position \
 			+ lead_fwd * formation_offset.x \
 			+ lead_stb * formation_offset.y
+	if not _water_position_clear(next_position):
+		speed = 0.0
+		return
+	global_position = next_position
 	# 朝向：完全复制 leader（整队一起拐弯，船头永远朝航向）
 	heading = leader.heading
 	rotation = heading
@@ -387,6 +419,48 @@ func _effective_turn_rate() -> float:
 	if r_max < 1.0:
 		return base
 	return minf(base, FORMATION_TANGENTIAL_CAP_PXS / r_max)
+
+## 提交旗舰位置前一起检查已登记护卫，防止旗舰在水上却把侧翼推上岸。
+func _fleet_water_clear(next_position: Vector2, next_heading: float) -> bool:
+	if not _water_position_clear(next_position):
+		return false
+	var forward := Vector2(sin(next_heading), -cos(next_heading))
+	var lateral := Vector2(cos(next_heading), sin(next_heading))
+	for value: Variant in _followers:
+		if typeof(value) != TYPE_OBJECT or not is_instance_valid(value):
+			continue
+		var follower := value as NavalUnit
+		if follower == null or follower.is_destroyed or follower.formation_leader != self:
+			continue
+		if not follower._water_position_clear(next_position + forward * follower.formation_offset.x
+				+ lateral * follower.formation_offset.y):
+			return false
+	return true
+
+## 圆形认证涵盖整个船身和两帧之间的扫掠段；不依赖镜头、LOD或阵营。
+func _water_position_clear(next_position: Vector2) -> bool:
+	if params == null:
+		return false
+	Water.prepare()
+	var hull_radius := Vector2(params.hull_length, params.hull_width).length() * 0.5
+	if _water_revision != Water.revision or not is_equal_approx(hull_radius, _water_hull_radius):
+		_water_revision = Water.revision
+		_water_hull_radius = hull_radius
+		_water_safe_center = Vector2.INF
+		_water_blocked_position = Vector2.INF
+	if _water_safe_center.is_finite() and next_position.distance_to(_water_safe_center) <= WATER_CACHE_TRAVEL_PX \
+			and global_position.distance_to(_water_safe_center) <= WATER_CACHE_TRAVEL_PX:
+		return true
+	if next_position == _water_blocked_position:
+		return false
+	var midpoint := (global_position + next_position) * 0.5
+	var travel := global_position.distance_to(next_position) * 0.5
+	if not Water.disk_clear(midpoint, hull_radius + travel + WATER_CACHE_TRAVEL_PX):
+		_water_blocked_position = next_position
+		return false
+	_water_safe_center = midpoint
+	_water_blocked_position = Vector2.INF
+	return true
 
 ## ============ 子系统 ============
 ## 每帧先推进所有挂点冷却，再调用 NavalWeapons.update 做开火判定
@@ -699,7 +773,7 @@ func _draw() -> void:
 
 
 func _draw_impl() -> void:
-	AircraftRenderer.clear_unit_status_panel(self)
+	AircraftRenderer.register_status_subject(self)
 	if params == null:
 		return
 
@@ -1024,33 +1098,4 @@ func _draw_lock_indicator() -> void:
 
 ## 状态栏标签：唯一舰名 / 航向 / 航速 / 真实船体生命值。
 func _draw_status_label() -> void:
-	if not _font:
-		_font = ThemeDB.fallback_font
-	var view_lod := AircraftRenderer.label_lod_scale(self)
-	_compact_data_label_active = AircraftRenderer.next_compact_label_state(
-		_compact_data_label_active, view_lod)
-	var compact := AircraftRenderer.compact_label_visible(
-		_compact_data_label_active, Input.is_key_pressed(KEY_ALT))
-	var lines := PackedStringArray([
-		AircraftRenderer.english_status_identity(full_name, ship_class_label)])
-	if compact:
-		var compact_xform := get_global_transform_with_canvas()
-		var compact_scale := compact_xform.basis_xform(Vector2.RIGHT).length()
-		var compact_radius := maxf(params.hull_width, params.hull_length) * 0.55
-		var compact_offset := AircraftRenderer.unit_status_screen_offset_for(
-			compact_radius, compact_scale, compact_xform.origin)
-		AircraftRenderer.draw_unit_status_panel(self, _font, lines, team,
-			compact_offset)
-		return
-	lines.append(AircraftRenderer.status_heading_text(heading))
-	lines.append(AircraftRenderer.status_speed_knots_text(speed))
-	lines.append(AircraftRenderer.status_hp_text(hull_hp, hull_hp_max))
-	var xform := get_global_transform_with_canvas()
-	var view_scale := xform.basis_xform(Vector2.RIGHT).length()
-	var icon_radius := maxf(params.hull_width, params.hull_length) * 0.55
-	var screen_offset := AircraftRenderer.unit_status_screen_offset_for(
-		icon_radius, view_scale, xform.origin)
-	AircraftRenderer.draw_unit_status_panel(self, _font, lines, team,
-		screen_offset)
-
-## _draw_destroyed 已被 NavalDestruction.draw 取代，保留作兼容接口但不再使用
+	AircraftRenderer.draw_status_snapshot(self)

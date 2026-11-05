@@ -31,7 +31,12 @@ const RESET_DURATION_S := 3.5            ## 换手持续时长
 const RESET_COOLDOWN_S := 3.0            ## 换手后冷却，防抖
 const MAX_CONCURRENT_RESET := 1          ## 全队任一刻最多几架在换手（灵魂：=1）
 
-var _squad: AceSquad = null
+## 中队拥有战术，反向只观察，避免 RefCounted 循环保活。
+var _squad_ref: WeakRef
+var _squad: AceSquad:
+	get:
+		var value: Variant = _squad_ref.get_ref() if _squad_ref != null else null
+		return value as AceSquad if typeof(value) == TYPE_OBJECT and is_instance_valid(value) else null
 var _log_name := "POLTERGEIST"
 var _sample_timer := 0.0
 
@@ -45,7 +50,7 @@ var _cooldown: Dictionary = {}           ## id -> 换手后冷却剩余
 # ══════════════════════════════════════════════
 
 func setup(squad: AceSquad) -> void:
-	_squad = squad
+	_squad_ref = weakref(squad) if squad != null else null
 	if squad != null:
 		_log_name = squad.display_name
 

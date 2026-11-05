@@ -215,7 +215,7 @@ func _capture_sequence() -> void:
 		manifest.store_string(JSON.stringify({"aircraft": assets, "captures": captures,
 			"qa_policy": "render success is not human multiview approval"}, "\t"))
 		manifest.close()
-	get_tree().quit(1 if failed else 0)
+	AudioManager.request_quit(1 if failed else 0)
 
 
 func _export_mesh(mesh: ArrayMesh, key: String, path: String) -> bool:

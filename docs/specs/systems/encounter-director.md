@@ -3,7 +3,7 @@ id: encounter-director
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 4
+spec_version: 5
 owner: user+codex
 depends_on: [systems/global-awareness-roe, systems/survivor-loop, systems/battlefield-tempo-pass, systems/reinforcement-ingress, systems/zone-air-support-naval-safety, systems/zone-atmosphere-combat, systems/runtime-performance-budget, systems/bomber-escort-zone, systems/ace-squadron-tier, systems/squad-xp-threat-balance, systems/squad-cohesion, systems/formation-discipline]
 reconstruction_complete: false
@@ -324,6 +324,8 @@ Director 不创建单位，不直接 `queue_free()`，也不写单机战术状�
 
 ### 3.3 Pressure Reservation 与让位
 
+普通战区触发后，存活敌方任务目标或驻守机已进入玩家周围 4000 px，或按双方当前速度航向在 18 秒内会进入时，旅途增援让出交战空间；仅在远处挂起的任务允许旅途增援照常申请，仍消费整包预算且不积攒欠波。轰炸护送期间专属预留。尚未触发的战区在途敌机如将进入同一范围，按 APPROACHING 压力系数 0.5 入账。刷怪器和导演最终准入共用同一判断。
+
 任务不是在旅途压力之上再加完整预算。例：当前 `PR_TARGET=8`、Global 已占 8，任务申请 5，则目标构成为 `Mission=5, Global≤3`。
 
 Global 让位顺序：
@@ -606,3 +608,4 @@ Telemetry 不上玩家 HUD，不逐单位逐秒写日志；同批单位日志按
 | 2026-08-30 | 2 | 用户定调编队优先：保留既有玩家 N→敌方单机/双机/Flight 软响应；明确 Package→Element→Squad 三层，把 4 机 Flight 可解析为两个双机 Element；普通 Element 默认 FORMATION_ASSAULT，禁止接敌即全员散开；Snowblind/DEADAIR 拆支援核心与护卫 Squad，Sentinel 固定槽位原子校验。 |
 | 2026-08-30 | 3 | 完成 Global PR admission、Recovery/无债务、普通与主题 Package、编队机会火力、普通敌机 Lethal Slot 及自动证据。难度基准显示峰值收敛、编队保持提高但无人指挥样本偏松；C1/C2 均守住 60 FPS 硬门，未启用额外飞机 LOD 降级。任务 reservation、阵营转换即时释放、逐 BOSS Adds 与完整局实玩仍保留为阶段 4～5。 |
 | 2026-08-30 | 4 | 按用户要求小幅回调平均攻击者。两轮全局增压候选被自动对拍否决：直属僚机 PR 步长 `1.05` 只令 ACTIVE `2.33→2.40`；`1.40` 的三次中位仍为 `2.40`，热样本却因四机 Flight 达到 `P90=7`。最终保留原 `0.75` PR 步长与 `10～18s` 冷却，只让 `N>=4` 的唯一开局驻防固定为三机完整 Element；单机玩家、Heat、Lethal Slot、Spike Cap、Recovery 与编队优先级不变。 |
+| 2026-11-03 | 5 | 旅途增援按普通任务的实际与预计接敌预留，远方未结束任务释放旅途名额，轰炸护送保留专属追兵。 |

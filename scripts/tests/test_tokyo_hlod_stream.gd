@@ -9,18 +9,34 @@ class RefinementSource extends RefCounted:
 
 
 static func refinement_source_checks() -> bool:
+	if preload("res://scripts/tests/test_tokyo_f5_review.gd").run()!=0: return false
+	if preload("res://scripts/tests/test_tokyo_partition_coverage.gd").run()!=0: return false
 	var split := preload("res://scripts/tests/tokyo_native_refinement_probe.gd")
 	var hint := {"axis":1,"threshold":-11700.0}
 	if split.planned_cut({"source_root":hint},"source_root")!=hint \
 		or not split.planned_cut({},"source_root").is_empty(): return false
 	for invalid in [null,{}, {"axis":2,"threshold":0}, {"axis":true,"threshold":0},
-		{"axis":0,"threshold":"0"},{"axis":0,"threshold":INF},{"axis":0,"threshold":NAN}]:
+		{"axis":0,"threshold":"0"},{"axis":0,"threshold":INF},{"axis":0,"threshold":NAN},
+		{"axis":0,"threshold":10,"metric":"unknown"},{"axis":1,"threshold":10,"metric":"extent"},
+		{"axis":0,"threshold":0,"metric":"extent"}]:
 		if not split.planned_cut({"source_root":invalid},"source_root").is_empty(): return false
+	# 长三角独立分桶仍保留原三角及全部属性，不能裁断或漏掉跨界道路。
+	var extent_hint := {"axis":0,"threshold":20.0,"metric":"extent"}
+	if split.planned_cut({"source_root":extent_hint},"source_root")!=extent_hint: return false
+	var triangle_arrays := [];triangle_arrays.resize(Mesh.ARRAY_MAX)
+	triangle_arrays[Mesh.ARRAY_VERTEX]=PackedVector3Array([Vector3.ZERO,Vector3(1,0,0),Vector3(0,0,1),
+		Vector3(100,0,0),Vector3(200,0,0),Vector3(100,0,1)])
+	var triangle_mesh := ArrayMesh.new()
+	triangle_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,triangle_arrays)
+	var owners := split.partition_owners(triangle_mesh,extent_hint)
+	if owners!=PackedInt32Array([0,1]): return false
+	var pieces := preload("res://scripts/experiments/tokyo_spatial_split.gd").partition(triangle_mesh,owners,2)
+	if pieces.size()!=2 or not preload("res://scripts/experiments/tokyo_packed_mesh_join.gd").conserved(triangle_mesh,pieces): return false
 	var massing := preload("res://scripts/tests/build_tokyo_source_massing.gd")
 	if massing.split_depth({})!=2: return false
-	for depth in [1,2,3,4]:
+	for depth in [1,2,3,4,8,10]:
 		if massing.split_depth({"split_depth":depth})!=depth: return false
-	for invalid in [0,5,-1,2.5,"2",true,null]:
+	for invalid in [0,11,-1,2.5,"2",true,null]:
 		if massing.split_depth({"split_depth":invalid})!=-1: return false
 	var exporter := preload("res://scripts/tests/export_tokyo_native_source.gd")
 	var a := {"path":"a","children":[]}
@@ -63,12 +79,56 @@ static func refinement_source_checks() -> bool:
 	source.coverage.lod5_full.pages.original.tokens[1]=[]
 	source.pages.original.game_sources=PackedStringArray(["formal"])
 	if builder.refinable(entry,source,"lod5_full"): return false
+	# 区域重分桶仍须绑定原树；不能覆盖已替换的后代、正式楼或未授权区域。
+	var branch_source := RefinementSource.new()
+	var branch := {"path":"region","children":[entry.duplicate(true)]}
+	branch_source.catalog={"configurations":{"lod5_full":[branch]}}
+	branch_source.pages={
+		"region":{"game_sources":PackedStringArray(),"canonical_identity":{"configuration":"lod5_full","parent":1,"cell":84}},
+		"original":{"game_sources":PackedStringArray(),"canonical_identity":{"configuration":"lod5_full","parent":2,"cell":84}}}
+	branch_source.coverage={"lod5_full":{"pages":{"region":{"tokens":[[],[]]},"original":{"tokens":[[],[]]}}}}
+	if not builder.refinable_source(branch,branch_source,"lod5_full",[84]) \
+		or builder.refinable_source(branch,branch_source,"lod5_full",[81]) \
+		or builder.refinable_source(branch,branch_source,"lod4_full",[84]) \
+		or builder.refinable_source(entry,branch_source,"lod5_full",[84]) \
+		or builder.refinable_source(branch,branch_source,"lod5_full",[]): return false
+	var changed_branch := branch.duplicate(true)
+	changed_branch.children[0].bytes+=1
+	if builder.refinable_source(changed_branch,branch_source,"lod5_full",[84]): return false
+	# 显式摘要绑定的来源路径支持其他大区；同编号、错路径及变更后的树仍不能混用。
+	branch_source.pages.region.canonical_identity.parent=2
+	if not builder.refinable_source(branch,branch_source,"lod5_full",[],["region"]) \
+		or builder.refinable_source(branch,branch_source,"lod5_full",[],["elsewhere"]) \
+		or builder.refinable_source(changed_branch,branch_source,"lod5_full",[],["region"]) \
+		or builder.refinable_source(branch,branch_source,"lod5_full",[84]): return false
+	branch_source.pages.region.canonical_identity.parent=1
+	branch_source.coverage.lod5_full.pages.original.tokens[0]=["formal"]
+	if builder.refinable_source(branch,branch_source,"lod5_full",[84]) or builder.refinable_source(branch,branch_source,"lod5_full",[],["region"]): return false
+	if not builder.refinable_source(branch,branch_source,"lod5_full",[],["region"],true) \
+		or builder.refinable_source(changed_branch,branch_source,"lod5_full",[],["region"],true): return false
+	branch_source.coverage.lod5_full.pages.original.tokens[0]=[]
+	branch_source.pages.original.game_sources=PackedStringArray(["formal"])
+	if builder.refinable_source(branch,branch_source,"lod5_full",[84]): return false
 	# 拒绝细分的页仍参与成本，不能把未加工页当空白；当前树不可退回旧10面页。
 	var probe := preload("res://scripts/tests/tokyo_native_refinement_probe.gd").new()
 	probe.eligible_leaf=func(_entry: Dictionary) -> bool: return false
 	var old := probe.select(source,Vector2(5,5),1.0,0.0,Vector2(1600,900),"lod5_full",1)
 	probe.current_roots=true
 	var current := probe.select(source,Vector2(5,5),1.0,0.0,Vector2(1600,900),"lod5_full",1)
+	# 同一次构建允许来源采用更浅的已绑定计划；缓存键、实际分桶深度必须一致。
+	var planned := split.new()
+	planned.branching=2;planned.refine_branches=true
+	planned.eligible_leaf=func(_entry: Dictionary) -> bool: return true
+	planned.leaf_split_plans={"original":leaf_plan}
+	planned._cache["original:1:2"]=entry
+	var shallower := planned.select(source,Vector2(5,5),1.0,0.0,Vector2(1600,900),"lod5_full",8)
+	if planned.failed or shallower.get("triangles",0)!=10: return false
+	for invalid_depth in [0,9,2.5,"1",true,null]:
+		var invalid_probe := split.new()
+		invalid_probe.branching=2;invalid_probe.refine_branches=true
+		invalid_probe.eligible_leaf=func(_entry: Dictionary) -> bool: return true
+		invalid_probe.leaf_split_plans={"original":{"split_depth":invalid_depth}}
+		if not invalid_probe.select(source,Vector2(5,5),1.0,0.0,Vector2(1600,900),"lod5_full",8).is_empty() or not invalid_probe.failed: return false
 	return not probe.failed and old.get("triangles",0)==10 and current.get("triangles",0)==2 \
 		and probe._cache.is_empty() and int(entry.triangles[0])==10
 
@@ -96,7 +156,7 @@ class CommitOverlay extends "res://scripts/rendering/tokyo_hlod_overlay.gd":
 	var coverage_margin := INF
 	func _cut_covers_current_view(_cut: Dictionary, _catalog: int, _margin_px: float = 0.0) -> bool: return committed_view_covered
 	func _target_covers_current_view(margin_px: float = 0.0) -> bool: return current_view_covered and margin_px<=coverage_margin
-	func _bind_target() -> void:
+	func _bind_target(_retained_nodes: Dictionary = {}) -> void:
 		binds+=1
 		_committed=_target.keys.duplicate()
 		_committed_cut=_target
@@ -189,7 +249,26 @@ static func native_resident_tree_checks() -> int:
 		failures+=int(cut.within_budget!=(mode<2))
 		if mode==0: failures+=int(cut.active!=2 or cut.triangles!=8)
 		if mode==1: failures+=int(cut.active!=1 or cut.entries[0].path!="root")
+		var indexed := preload("res://scripts/rendering/tokyo_hlod_native.gd").new()
+		indexed.pages=context.geometry;indexed._selection_configurations={"lod5_full":[root]}
+		indexed.prepare_resident_index()
+		var indexed_context := context.duplicate()
+		indexed_context["possible"]=indexed.resident_possible_nodes(context.meshes)
+		var indexed_roots: Array[Dictionary]=[cached.native_tree(root,indexed_context)]
+		var indexed_cut := solver.choose(indexed_roots,context.view,context.canvas,context.size,context.roof,Vector2.ZERO,16,192*1024*1024)
+		failures+=int(indexed_cut.within_budget!=cut.within_budget)
+		if cut.within_budget: failures+=int(indexed_cut.active!=cut.active or indexed_cut.triangles!=cut.triangles or indexed_cut.bytes!=cut.bytes)
+		failures+=int(not indexed.resident_possible_nodes({}).is_empty())
 		failures+=int(root!=original)
+	# 替代分支和共享物理组件必须进入祖先并集；零组件节点不能被空缓存误裁。
+	var indexed := preload("res://scripts/rendering/tokyo_hlod_native.gd").new()
+	var alternate := root.duplicate(true);alternate.children=[];alternate["alternative_children"]=[[child,other]]
+	indexed.pages={"a":{"components":{"shared":{}}},"b":{"components":{}},"root":{"components":{"root":{}}}}
+	indexed._selection_configurations={"lod5_full":[alternate]};indexed.prepare_resident_index()
+	var possible := indexed.resident_possible_nodes({"shared":{}})
+	failures+=int(not possible.has("root") or not possible.has("a") or not possible.has("b"))
+	possible=indexed.resident_possible_nodes({})
+	failures+=int(not possible.has("root") or possible.has("a") or not possible.has("b"))
 	return failures
 
 class LoadingOverlay extends CommitOverlay:
@@ -219,6 +298,25 @@ static func foundation_checks() -> int:
 	failures+=int(foundation.catalog_at(plan,0.18,1)!=-1 or foundation.catalog_at(plan,0.18,0)!=0)
 	var cut := foundation.select(catalog,entries,Vector2.ZERO,0.18,0.2,Vector2(1600,900),488)
 	failures+=int(cut.is_empty() or cut.get("bytes",0)!=488)
+	# 概括资产只有显式质量绑定才可扩展固定根页；旧细档和预算门不放宽。
+	var summary_catalog: Dictionary=catalog.duplicate(true)
+	summary_catalog.max_scale=0.4;summary_catalog.roots[0].max_scale=0.4
+	var summary_catalogs: Array[Dictionary]=[summary_catalog]
+	failures+=int(not foundation.plan(summary_catalogs).is_empty())
+	summary_catalog["far_summary_recipe"]={"path":"res://fixture/far.json","sha256":"a".repeat(64)}
+	var summary_plan := foundation.plan(summary_catalogs)
+	failures+=int(summary_plan.is_empty() or foundation.catalog_at(summary_plan,0.4)!=0 or foundation.catalog_at(summary_plan,0.400001)!=-1)
+	var overlapping: Array[Dictionary]=[summary_catalog.duplicate(true),summary_catalog]
+	overlapping[0].max_scale=0.1944
+	var overlapping_plan := foundation.plan(overlapping)
+	failures+=int(foundation.catalog_at(overlapping_plan,0.18)!=1 or foundation.catalog_at(overlapping_plan,0.18,0)!=1)
+	if not summary_plan.is_empty():
+		var summary_entries: Array[Dictionary]=summary_plan.layers[0].entries
+		failures+=int(foundation.select(summary_catalog,summary_entries,Vector2.ZERO,0.4,0.2,Vector2(1600,900),488).is_empty())
+		failures+=int(not foundation.select(summary_catalog,summary_entries,Vector2.ZERO,0.4,0.2,Vector2(1600,900),487).is_empty())
+		failures+=int(not foundation.select(summary_catalog,summary_entries,Vector2.ZERO,0.400001,0,Vector2(1600,900),488).is_empty())
+	summary_catalog.far_summary_recipe.sha256="invalid"
+	failures+=int(not foundation.plan(summary_catalogs).is_empty())
 	var many := catalog.duplicate(true)
 	many.rows={}
 	var many_entries: Array[Dictionary]=[]
@@ -578,6 +676,12 @@ static func commit_ready_checks() -> int:
 	var guarded_cut := {"guard_prefetch_keys":["same"],"prefetch_catalog":1,"prefetch_keys":["same"]}
 	var guard_requests: Array[Dictionary]=handoff.prefetch_requests(guard_catalogs,guarded_cut,0)
 	native_gate_failures+=int(guard_requests!=[{"mesh":"future","image":"future_image"},{"mesh":"edge","image":"edge_image"}])
+	var ordered_cut := guarded_cut.duplicate(true)
+	ordered_cut["path_prefetch_first"]=true;ordered_cut["prefetch_extra"]=[{"mesh":"return","image":"return_image"}]
+	native_gate_failures+=int(handoff.prefetch_requests(guard_catalogs,ordered_cut,0)!=[{"mesh":"future","image":"future_image"},{"mesh":"return","image":"return_image"},{"mesh":"edge","image":"edge_image"}])
+	ordered_cut.prefetch_keys=[]
+	native_gate_failures+=int(handoff.prefetch_requests(guard_catalogs,ordered_cut,0)!=[{"mesh":"return","image":"return_image"},{"mesh":"edge","image":"edge_image"}])
+	native_gate_failures+=int(not handoff.prefetch_changed({}, {"path_prefetch_first":true},0))
 	guarded_cut.prefetch_keys=[]
 	native_gate_failures+=int(handoff.prefetch_requests(guard_catalogs,guarded_cut,0)!=[{"mesh":"edge","image":"edge_image"}])
 	native_gate_failures+=int(handoff.prefetch_requests([], {"guard_prefetch_keys":["mesh"],"prefetch_keys":["next"]},-2)!=[{"mesh":"next","image":""},{"mesh":"mesh","image":""}])
@@ -695,6 +799,7 @@ static func commit_ready_checks() -> int:
 	var cached_cut := preload("res://scripts/rendering/tokyo_hlod_cached_cut.gd")
 	var ordered_catalogs: Array[Dictionary]=[{"max_scale":0.1},{"max_scale":0.5},{"max_scale":0.2},{"max_scale":1.0}]
 	native_gate_failures+=int(cached_cut.candidate_catalogs(ordered_catalogs,3,1,0.15)!=PackedInt32Array([3,1,2]))
+	native_gate_failures+=int(cached_cut.candidate_catalogs(ordered_catalogs,3,1,0.15,true)!=PackedInt32Array([2,1,3]))
 	native_gate_failures+=int(cached_cut.candidate_catalogs(ordered_catalogs,0,0,0.15)!=PackedInt32Array([2]))
 	# 原生目标没有HLOD目录号，但仍必须尝试合格的已显示档与最近缓存档。
 	native_gate_failures+=int(cached_cut.candidate_catalogs(ordered_catalogs,-2,1,0.15)!=PackedInt32Array([1,2]))
@@ -870,7 +975,9 @@ static func commit_ready_checks() -> int:
 	failures+=int(overlay._commit_ready_target(1.26) or not overlay._screen.visible)
 	overlay._target["anticipated_scale"]=1.1
 	failures+=int(overlay._commit_ready_target(1.0) or overlay.binds!=0)
+	overlay.current_view_covered=false
 	failures+=int(overlay._commit_ready_target(1.2) or overlay.binds!=0) # 无真实视野证明不能交接。
+	overlay.current_view_covered=true
 	overlay._target.erase("anticipated_scale")
 	# 缩远降档完成时已反向放大，不能把仍清晰的旧档换成即将过期的粗档。
 	overlay._catalogs.append({"max_scale":2.5,"rows":{"fine":{"max_scale":2.5}}})
@@ -935,7 +1042,7 @@ class PipelineFixture extends Stream:
 
 
 class MotionPlanProbe extends "res://scripts/rendering/tokyo_map_planner.gd":
-	func _predict_prefetch(_center: Vector2, _scale: float, _angle: float, _size: Vector2) -> Dictionary: return {}
+	func _predict_prefetch(_center: Vector2, _scale: float, _angle: float, _size: Vector2, _horizon: float = 0.25, _preceding: Dictionary = {}, _prime_adjacent: bool = false) -> Dictionary: return {}
 
 
 class ZoomGuardPool extends Node:
@@ -1451,6 +1558,12 @@ static func pending_hlod_expiry_checks() -> int:
 			failures+=int(not handoff.qualified(catalog,pending,scale) or not probe._target_covers_current_view(96.0))
 			failures+=int(probe._pending_hlod_covers(scale,sample[2])!=sample[3])
 		failures+=int(handoff.catalog_index(probe._catalogs,0.191785494486491,true)!=1)
+		# 缩远退出本档时，不再扩装同档细页；不同档的必经桥接仍保留。
+		probe._last_canvas=Transform2D(Vector2(0.178,0),Vector2(0,0.178),size*0.5)
+		probe._zoom_rate=-1.0;probe._committed_catalog=0;probe._committed=PackedStringArray(["previous"])
+		failures+=int(probe._pending_hlod_covers(0.178,true))
+		probe._committed_catalog=1
+		failures+=int(not probe._pending_hlod_covers(0.178,true))
 		# 页自身先于目录到期也必须拒绝，不能只验目录总上限。
 		probe._catalogs[0].rows["0:0"].max_scale=0.22
 		probe._zoom_rate=0.5
@@ -1698,10 +1811,11 @@ static func cache_pruning_checks() -> int:
 	failures+=int(not component._views.is_empty())
 	component.close();component.free()
 	print("[HLOD membership microprobe] old_filter_us=",reference_usec," new_full_request_us=",optimized_usec," equivalent=",failures==0)
-	for trial: Array in [[384,true],[1536,true],[1536,false]]:
+	for trial: Array in [[384,true,false],[1536,true,false],[1536,false,false],[384,true,true],[384,false,true]]:
 		var pool: int=trial[0]
 		var recent_mesh: bool=trial[1]
 		var stream := Stream.new()
+		stream.cache_lru=trial[2]
 		stream.residency_limit=pool*1024*1024
 		stream._retain_unused=true
 		var mesh := preload("res://scripts/rendering/tokyo_mesh_component.gd").new()
@@ -1715,11 +1829,11 @@ static func cache_pruning_checks() -> int:
 		var previous_charge: int=stream._auxiliary_bytes
 		var required := 60 if recent_mesh else 30
 		stream._prune(required)
-		failures+=int(stream._cache.has("mesh")!=(pool==1536 and recent_mesh))
+		failures+=int(stream._cache.has("mesh")!=((pool==1536 or stream.cache_lru) and recent_mesh))
 		failures+=int(stream._texture_retiring.has("old")!=recent_mesh or not stream._textures.has("pinned"))
 		failures+=int(stream._auxiliary_bytes!=previous_charge) # 计划退役不提前释放计费。
 		stream._prune(required)
-		failures+=int(stream._cache.has("mesh")!=(pool==1536 and recent_mesh))
+		failures+=int(stream._cache.has("mesh")!=((pool==1536 or stream.cache_lru) and recent_mesh))
 		stream._textures.clear();stream._texture_retiring.clear();stream._auxiliary_bytes=0
 		stream.close()
 		stream.free()
@@ -1857,6 +1971,40 @@ static func idle_completion_checks(parent: Node) -> int:
 	return failures
 
 
+static func direct_file_probe_checks(parent: Node) -> int:
+	var path := "res://scripts/rendering/tokyo_hlod_stream.gd"
+	var missing := "res://tmp/does_not_exist_v31.res"
+	var had_known := Stream._known_resources.has(path)
+	var failures := 0
+	var uid := ResourceLoader.get_resource_uid(path)
+	if uid==ResourceUID.INVALID_ID: return 1
+	var alias := ResourceUID.id_to_text(uid)
+	var had_alias := Stream._known_resources.has(alias)
+	for enabled: bool in [false,true]:
+		Stream._known_resources.erase(path);Stream._known_resources.erase(alias)
+		var owner := Node.new();parent.add_child(owner)
+		var stream := PipelineFixture.new();parent.add_child(stream)
+		stream.configure_hlod(owner,{path:{"bytes":0},alias:{"bytes":0},missing:{"bytes":0}}, {})
+		stream.fast_file_probe=enabled;stream.payload_valid=false
+		stream._pipeline_width=3;stream._request_limit=3
+		stream.request(PackedStringArray([path,alias,missing]),PackedStringArray())
+		stream._process_stream()
+		failures+=int(stream.started!=2 or stream.fast_file_probe_hits!=int(enabled) \
+			or stream._failures.get(missing)!="missing resource")
+		# 存在查询命中不能绕过内容校验；假载荷必须仍被拒绝，并归还共享槽/预约。
+		stream._process_stream()
+		failures+=int(stream.completed!=0 or stream._failures.get(path)!="invalid archive or geometry budget" \
+			or stream._failures.get(alias)!="invalid archive or geometry budget" \
+			or not stream._pending.is_empty() or not Stream._busy.is_empty() or stream.summary().total_bytes!=0)
+		stream.close();stream.free();owner.queue_free()
+	if had_known: Stream._known_resources[path]=true
+	else: Stream._known_resources.erase(path)
+	if had_alias: Stream._known_resources[alias]=true
+	else: Stream._known_resources.erase(alias)
+	print("[HLOD direct file probe] fail=",failures)
+	return failures
+
+
 static func pipeline_checks(parent: Node) -> int:
 	var paths := PackedStringArray(["res://scripts/rendering/tokyo_hlod_stream.gd","res://scripts/rendering/tokyo_cell_stream.gd"])
 	var failures := 0
@@ -1877,6 +2025,25 @@ static func pipeline_checks(parent: Node) -> int:
 	failures+=int(fair_stream.started!=1 or fair_stream._pending.size()!=1 or fair_stream._request_limit!=2)
 	fair_stream.close()
 	fair_owner.queue_free()
+	for frame in 4: await parent.get_tree().process_frame
+	failures+=int(not Stream._busy.is_empty())
+	var balanced_owner := Node.new()
+	parent.add_child(balanced_owner)
+	var balanced := PipelineFixture.new()
+	parent.add_child(balanced)
+	var balanced_geometry: Dictionary={}
+	for name: String in ["hlod_stream","cell_stream","component_stream","hlod_manifest","hlod_overlay","map_planner","hlod_native","hlod_handoff"]:
+		balanced_geometry["res://scripts/rendering/tokyo_%s.gd" % name]={"bytes":0}
+	balanced.configure_hlod(balanced_owner,balanced_geometry,{})
+	balanced.balanced_io=true;balanced.input_waiting=true;balanced.hold_texture_step=true
+	balanced._request_limit=8;balanced._pipeline_width=8
+	for n in 4:
+		balanced._texture_descriptors["waiting%d" % n]={}
+		balanced.visible_images.append("waiting%d" % n)
+	balanced.request(PackedStringArray(balanced_geometry.keys()),PackedStringArray())
+	balanced._process_stream();balanced.set_process(false)
+	failures+=int(balanced.started!=4 or balanced._pending.size()!=4 or balanced._request_limit!=8 or Stream._busy.size()!=4)
+	balanced.close();balanced_owner.queue_free()
 	for frame in 4: await parent.get_tree().process_frame
 	failures+=int(not Stream._busy.is_empty())
 	for cancel in [false,true]:
@@ -1962,7 +2129,10 @@ static func pipeline_checks(parent: Node) -> int:
 
 static func height_texture_checks(parent: Node) -> int:
 	var height := preload("res://scripts/rendering/tokyo_ground_height.gd")
-	var path := "res://tmp/tokyo_ground_height_fixture.res"
+	# Shadow不复制工作区tmp；夹具自己建立隔离目录，并在流送退出后删除。
+	var directory := "res://tmp"
+	if DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(directory))!=OK: return 1
+	var path := directory.path_join("tokyo_ground_height_fixture-%d-%d.res"%[OS.get_process_id(),Time.get_ticks_usec()])
 	var image := Image.create_from_data(1,2,false,Image.FORMAT_RGBA8,PackedByteArray([16,50,84,118,152,186,220,254]))
 	if ResourceSaver.save(image,path,ResourceSaver.FLAG_COMPRESS)!=OK: return 1
 	var row := {"path":path,"sha256":FileAccess.get_sha256(path),"kind":"ground_height_4bit","mipmaps":false,"width":1,"height":2,"format":Image.FORMAT_RGBA8,"mip_bytes":8,"charge":4120}
@@ -1985,6 +2155,8 @@ static func height_texture_checks(parent: Node) -> int:
 	owner.queue_free()
 	for frame in 4: await parent.get_tree().process_frame
 	failures+=int(not Stream._busy.is_empty())
+	failures+=int(DirAccess.remove_absolute(ProjectSettings.globalize_path(path))!=OK)
+	failures+=int(FileAccess.file_exists(path))
 	print("[HLOD packed height] fail=",failures)
 	return failures
 
@@ -2006,6 +2178,59 @@ static func shutdown_checks(parent: Node) -> int:
 	stream.free() # 无后续帧的退出必须join自有线程并归还静态请求槽。
 	owner.queue_free()
 	return int(not valid or not Stream._busy.is_empty())
+
+
+class AsyncDispatchFixture extends Stream:
+	var fetched := 0
+	func _take_load(path: String) -> Resource:
+		var actual: Resource = super._take_load(path)
+		if actual==null: return null
+		fetched+=1
+		var component := preload("res://scripts/rendering/tokyo_mesh_component.gd").new()
+		component.geometry_bytes=int(_descriptors[path].bytes)
+		return component
+	func _matches(item: Resource, path: String) -> bool:
+		return item!=null and _mesh_hashes.get(path)==_descriptors[path].sha256
+
+
+static func async_dispatch_checks(parent: Node) -> int:
+	var valid_path := "res://resources/maps/tokyo_volume_preview/hlod_stream_fixture.tres"
+	var expected := FileAccess.get_sha256(valid_path)
+	var failures := 0
+	for mode in ["valid","bad_hash","missing","cancel","exit_inflight","budget"]:
+		var before := failures
+		var path: String="res://tmp/missing_async_dispatch.res" if mode=="missing" else valid_path
+		var owner := Node.new();parent.add_child(owner)
+		var stream := AsyncDispatchFixture.new();owner.add_child(stream)
+		stream.configure_hlod(owner,{path:{"bytes":40,"sha256":"a".repeat(64) if mode=="bad_hash" else expected}}, {})
+		stream._main_thread_meshes=false # 独立Image归档不触碰Dummy网格分配器。
+		stream.async_mesh_dispatch=true;stream.fast_file_probe=true;stream._retain_unused=false
+		if mode=="budget": stream.residency_limit=20
+		stream.request(PackedStringArray([path]),PackedStringArray())
+		stream._process_stream();stream.set_process(false)
+		failures+=int(stream.started!=(0 if mode=="budget" else 1))
+		failures+=int(stream._reserved!=(0 if mode=="budget" else 40))
+		if mode=="cancel": stream.close()
+		if mode!="exit_inflight":
+			var deadline := Time.get_ticks_msec()+5000
+			while not stream._pending.is_empty() and Time.get_ticks_msec()<deadline:
+				await parent.get_tree().process_frame
+				if not is_instance_valid(stream): break
+				stream._process_stream();stream.set_process(false)
+			if is_instance_valid(stream):
+				failures+=int(not stream._pending.is_empty() or stream._reserved!=0 or not stream._mesh_dispatches.is_empty())
+				failures+=int(stream.completed!=int(mode=="valid"))
+				if mode=="missing":
+					failures+=int(stream._failures.get(path)!="missing resource" or Stream._known_resources.has(path) or stream.fetched!=0)
+					print("[HLOD missing dispatch] ",JSON.stringify({"error":stream._failures.get(path),"known":Stream._known_resources.has(path),"fetched":stream.fetched,"started":stream.started,"pending":stream._pending.size(),"dispatches":stream._mesh_dispatches.size()}))
+				if mode=="bad_hash": failures+=int(not stream._failures.has(path))
+		var reference: WeakRef=weakref(stream) if is_instance_valid(stream) else null
+		owner.queue_free()
+		for frame in 3: await parent.get_tree().process_frame
+		failures+=int((reference!=null and reference.get_ref()!=null) or not Stream._busy.is_empty())
+		print("[HLOD async dispatch case] mode=",mode," failures=",failures-before)
+	print("[HLOD async dispatch] fail=",failures)
+	return failures
 
 
 static func checksum_reload_checks(parent: Node) -> int:
@@ -2054,6 +2279,226 @@ static func installed_route_checks() -> bool:
 		if saved[key][0]: OS.set_environment(key,saved[key][1])
 		else: OS.unset_environment(key)
 	return good
+
+
+static func fixed_cache_budget_checks() -> int:
+	var policy := preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd")
+	var failures := 0
+	var had_setting := OS.has_environment("AGL_TOKYO_CACHE_MIB")
+	var old_setting := OS.get_environment("AGL_TOKYO_CACHE_MIB")
+	for setting: String in ["96","192","384","","0","-1","192.0"," 192","0192","768","1536"]:
+		var expected := int(setting)*policy.MIB if setting in ["96","192","384"] else Stream.BUDGET
+		OS.set_environment("AGL_TOKYO_CACHE_MIB",setting)
+		failures+=int(policy.fixed_pool_bytes(setting)!=expected or policy.candidate_limit()!=expected)
+		failures+=int(policy.display_limit()!=Stream.BUDGET)
+	if had_setting: OS.set_environment("AGL_TOKYO_CACHE_MIB",old_setting)
+	else: OS.unset_environment("AGL_TOKYO_CACHE_MIB")
+	for limit: int in [192*policy.MIB,384*policy.MIB]:
+		var owner := Node.new()
+		var stream := Stream.new()
+		failures+=int(not stream.configure_hlod(owner,{},{}))
+		stream.residency_limit=limit
+		var first := RefCounted.new();var second := RefCounted.new();var extra := RefCounted.new()
+		failures+=int(not stream.reserve_auxiliary(first.get_instance_id(),Stream.BUDGET))
+		failures+=int(not stream.reserve_auxiliary(second.get_instance_id(),limit-Stream.BUDGET))
+		failures+=int(stream.reserve_auxiliary(extra.get_instance_id(),1))
+		failures+=int(stream.summary().total_bytes!=limit or stream.summary().peak_total_bytes!=limit)
+		stream.release_auxiliary(first.get_instance_id());stream.release_auxiliary(second.get_instance_id())
+		failures+=int(stream.summary().total_bytes!=0)
+		stream.close();stream.free();owner.free()
+	print("[HLOD fixed cache budget] fail=",failures)
+	return failures
+
+
+class RecyclingProbe extends Stream:
+	var released_texture: WeakRef
+	var released_token := 0
+	var release_audit := {"checks":0,"premature":0}
+
+	func release_auxiliary(key: int) -> void:
+		if key==released_token and released_texture!=null:
+			release_audit.checks+=1
+			release_audit.premature+=int(released_texture.get_ref()!=null)
+		super.release_auxiliary(key)
+
+
+static func texture_recycling_checks(parent: Node, full_pool: bool = false, cancel_borrowed: bool = false, retiring_only: bool = false) -> int:
+	var paths := PackedStringArray(["res://resources/maps/tokyo_volume_preview/hlod_stream_fixture.tres","res://resources/maps/tokyo_volume_preview/hlod_stream_fixture_pair.tres"])
+	var descriptors: Dictionary={}
+	for path: String in paths:
+		descriptors[path]={"sha256":FileAccess.get_sha256(path),"width":4,"height":4,"format":Image.FORMAT_DXT5,"mip_bytes":48,"charge":4240}
+	var owner := Node.new()
+	parent.add_child(owner)
+	var stream := RecyclingProbe.new()
+	parent.add_child(stream)
+	stream.configure_hlod(owner,{},descriptors)
+	stream.reuse_textures=true
+	stream._retain_unused=true
+	stream.request_textures(PackedStringArray([paths[0]]),PackedStringArray())
+	var deadline := Time.get_ticks_msec()+5000
+	while stream.texture(paths[0])==null and Time.get_ticks_msec()<deadline: await parent.get_tree().process_frame
+	if stream.texture(paths[0])==null:
+		owner.queue_free()
+		return 1
+	var identity := stream.texture(paths[0]).get_instance_id()
+	# 退役后恢复的图再次解绑，必须重新等两帧，不能沿用已经过期的旧退役时间。
+	var returning: Dictionary=stream._textures[paths[0]]
+	returning["retire_frame"]=Engine.get_process_frames()-1
+	stream._texture_retiring[paths[0]]=returning;stream._textures.erase(paths[0])
+	stream._step_textures()
+	returning={}
+	var held := stream.texture(paths[0])
+	stream.request_textures(PackedStringArray(),PackedStringArray([paths[0]]))
+	var failures := int(stream._take_recycled_texture(paths[1])!=null)
+	stream.request_textures(PackedStringArray(),PackedStringArray())
+	failures+=int(stream._take_recycled_texture(paths[1])!=null) # 两帧解绑期内不能改旧内容。
+	for frame in 3: await parent.get_tree().process_frame
+	failures+=int(stream._take_recycled_texture(paths[1])!=null) # 外部材质/调用者仍持有时拒绝。
+	held=null
+	stream.reuse_textures=false
+	failures+=int(stream._take_recycled_texture(paths[1])!=null)
+	stream.reuse_textures=true
+	stream._texture_descriptors[paths[1]].width=8
+	failures+=int(stream._take_recycled_texture(paths[1])!=null)
+	stream._texture_descriptors[paths[1]].width=4
+	var blocker := RefCounted.new()
+	if full_pool: failures+=int(not stream.reserve_auxiliary(blocker.get_instance_id(),Stream.BUDGET-4240))
+	if retiring_only:
+		var retired: Dictionary=stream._textures[paths[0]]
+		retired["retire_frame"]=Engine.get_process_frames()-1
+		stream._textures.erase(paths[0]);stream._texture_retiring[paths[0]]=retired
+		retired={}
+	stream.request_textures(PackedStringArray([paths[1]]),PackedStringArray())
+	deadline=Time.get_ticks_msec()+5000
+	if cancel_borrowed:
+		while not stream._texture_jobs.has(paths[1]) and Time.get_ticks_msec()<deadline: await parent.get_tree().process_frame
+		failures+=int(not stream._texture_jobs.has(paths[1]) or stream.texture_slot_handoffs!=1 \
+			or stream.summary().auxiliary_bytes!=Stream.BUDGET)
+		var image_ref: WeakRef
+		if stream._texture_jobs.has(paths[1]) and stream._texture_jobs[paths[1]].has("texture"):
+			image_ref=weakref(stream._texture_jobs[paths[1]].texture)
+			stream.released_texture=image_ref
+			stream.released_token=stream._texture_jobs[paths[1]].token.get_instance_id()
+		var release_audit: Dictionary=stream.release_audit
+		stream.release_auxiliary(blocker.get_instance_id())
+		var closing: WeakRef=weakref(stream)
+		stream.close() # 在下个加载 tick 前取消，不能先上传再走普通退役。
+		owner.queue_free()
+		while closing.get_ref()!=null and Time.get_ticks_msec()<deadline: await parent.get_tree().process_frame
+		failures+=int(closing.get_ref()!=null or image_ref==null or image_ref.get_ref()!=null or not Stream._busy.is_empty())
+		failures+=int(release_audit.checks!=1 or release_audit.premature!=0)
+		print("[HLOD borrowed texture cancellation] fail=",failures)
+		return failures
+	while stream.texture(paths[1])==null and Time.get_ticks_msec()<deadline: await parent.get_tree().process_frame
+	var ready := stream.texture(paths[1])!=null
+	var should_reuse := full_pool or retiring_only
+	failures+=int(not ready or stream.texture_reuses!=int(should_reuse) or (stream.texture(paths[0])==null)!=should_reuse)
+	if ready:
+		failures+=int((stream.texture(paths[1]).get_instance_id()==identity)!=should_reuse)
+		if not stream._main_thread_meshes:
+			var expected: Dictionary=Stream.load_image(paths[1],descriptors[paths[1]])
+			failures+=int(stream.texture(paths[1]).get_image().get_data()!=expected.image.get_data())
+	failures+=int(stream.summary().auxiliary_bytes!=(Stream.BUDGET if full_pool else (4240 if retiring_only else 8480)) or not stream._texture_jobs.is_empty())
+	if should_reuse: failures+=int(stream.texture_slot_handoffs!=1)
+	if full_pool:
+		failures+=int(stream.texture_slot_handoffs!=1 or stream.summary().peak_total_bytes!=Stream.BUDGET)
+		stream.release_auxiliary(blocker.get_instance_id())
+	var reference: WeakRef = weakref(stream)
+	owner.queue_free()
+	deadline=Time.get_ticks_msec()+5000
+	while reference.get_ref()!=null and Time.get_ticks_msec()<deadline: await parent.get_tree().process_frame
+	failures+=int(reference.get_ref()!=null or not Stream._busy.is_empty())
+	print("[HLOD texture recycling] full_pool=",full_pool," retiring_only=",retiring_only," fail=",failures)
+	return failures
+
+
+static func queued_texture_recycling_checks(parent: Node, cancel_queued: bool = false, exit_queued: bool = false) -> int:
+	var paths := PackedStringArray(["res://resources/maps/tokyo_volume_preview/hlod_stream_fixture.tres","res://resources/maps/tokyo_volume_preview/hlod_stream_fixture_pair.tres"])
+	var descriptors := {}
+	for path: String in paths:
+		descriptors[path]={"sha256":FileAccess.get_sha256(path),"width":4,"height":4,"format":Image.FORMAT_DXT5,"mip_bytes":48,"charge":4240}
+	var owner := Node.new();parent.add_child(owner)
+	var stream := Stream.new();parent.add_child(stream)
+	stream.configure_hlod(owner,{},descriptors)
+	stream.reuse_textures=true;stream._retain_unused=true;stream.cache_lru=true
+	stream.request_textures(PackedStringArray([paths[0]]),PackedStringArray())
+	var deadline := Time.get_ticks_msec()+5000
+	while stream.texture(paths[0])==null and Time.get_ticks_msec()<deadline: await parent.get_tree().process_frame
+	if stream.texture(paths[0])==null:
+		stream.queue_free();owner.queue_free();return 1
+	var identity := stream.texture(paths[0]).get_instance_id()
+	var texture_ref: WeakRef = weakref(stream.texture(paths[0]))
+	var blocker := RefCounted.new()
+	var failures := int(not stream.reserve_auxiliary(blocker.get_instance_id(),Stream.BUDGET-4240))
+	# 八槽均占用：请求已明确，但新图片还不能启动。旧GPU到期时不能丢掉复用机会。
+	var occupied := PackedStringArray()
+	for index in 8:
+		var key := "queued-texture-fixture-%d-%d"%[stream.get_instance_id(),index]
+		occupied.append(key);Stream._busy[key]=stream.get_instance_id()
+	stream.request_textures(PackedStringArray([paths[1]]),PackedStringArray())
+	stream.set_process(false)
+	for frame in 5:
+		await parent.get_tree().process_frame
+		stream._step_textures()
+	failures+=int(texture_ref.get_ref()==null or stream.texture(paths[1])!=null or not stream._texture_jobs.is_empty())
+	failures+=int(stream.summary().auxiliary_bytes!=Stream.BUDGET)
+	for key: String in occupied: Stream._busy.erase(key)
+	if exit_queued:
+		stream.close()
+		stream.close() # 重复退出不能重复退账。
+		failures+=int(texture_ref.get_ref()!=null or not stream._texture_reservations.is_empty())
+	elif cancel_queued:
+		stream.request_textures(PackedStringArray(),PackedStringArray())
+		stream._step_textures()
+		failures+=int(texture_ref.get_ref()!=null or stream.summary().auxiliary_bytes!=Stream.BUDGET-4240)
+	else:
+		deadline=Time.get_ticks_msec()+5000
+		while stream.texture(paths[1])==null and Time.get_ticks_msec()<deadline:
+			stream._step_textures();await parent.get_tree().process_frame
+		failures+=int(stream.texture(paths[1])==null or stream.texture_reuses!=1)
+		if stream.texture(paths[1])!=null: failures+=int(stream.texture(paths[1]).get_instance_id()!=identity)
+		if stream.texture(paths[1])!=null and not stream._main_thread_meshes:
+			var expected: Dictionary=Stream.load_image(paths[1],descriptors[paths[1]])
+			failures+=int(stream.texture(paths[1]).get_image().get_data()!=expected.image.get_data())
+		failures+=int(stream.summary().auxiliary_bytes!=Stream.BUDGET)
+	stream.release_auxiliary(blocker.get_instance_id())
+	var reference: WeakRef = weakref(stream)
+	stream.close();stream.queue_free();owner.queue_free()
+	await parent.get_tree().process_frame
+	await parent.get_tree().process_frame
+	failures+=int(reference.get_ref()!=null or not Stream._busy.is_empty())
+	print("[HLOD queued texture recycling] cancel=",cancel_queued," exit=",exit_queued," fail=",failures)
+	return failures
+
+
+static func balanced_io_checks() -> int:
+	var stream := Stream.new()
+	stream.balanced_io=true;stream._request_limit=8
+	for n in 6:
+		var path := "image%d" % n
+		stream.visible_images.append(path);stream._texture_descriptors[path]={}
+	var failures := int(stream.image_slot_reserve()!=0) # 没有输入等待时保持原调度。
+	stream.input_waiting=true
+	failures+=int(stream.image_slot_reserve()!=4)
+	stream._texture_jobs["image0"]={}
+	failures+=int(stream.image_slot_reserve()!=3)
+	stream._texture_jobs["image1"]={};stream._texture_jobs["image2"]={};stream._texture_jobs["image3"]={}
+	failures+=int(stream.image_slot_reserve()!=0)
+	stream._texture_jobs.clear()
+	for n in 5: stream._textures["image%d" % n]={}
+	failures+=int(stream.image_slot_reserve()!=1)
+	stream._texture_errors["image5"]="missing"
+	failures+=int(stream.image_slot_reserve()!=0)
+	stream._texture_errors.clear();stream._textures.clear()
+	stream._request_limit=2
+	failures+=int(stream.image_slot_reserve()!=1)
+	stream._request_limit=1
+	failures+=int(stream.image_slot_reserve()!=0)
+	stream._request_limit=8;stream._closed=true
+	failures+=int(stream.image_slot_reserve()!=0)
+	stream.free()
+	print("[HLOD balanced IO] fail=",failures)
+	return failures
 
 
 static func texture_pipeline_checks(parent: Node) -> int:
@@ -2317,6 +2762,17 @@ static func run(parent: Node) -> int:
 	var worker_failures := await preload("res://scripts/tests/test_tokyo_cut_worker.gd").run(parent)
 	if OS.get_environment("AGL_TOKYO_HANDOFF_BUDGET_PROBE")=="1": return handoff_budget_probe()
 	if not refinement_source_checks(): return 1
+	if balanced_io_checks()!=0: return 1
+	if fixed_cache_budget_checks()!=0: return 1
+	if direct_file_probe_checks(parent)!=0: return 1
+	if await async_dispatch_checks(parent)!=0: return 1
+	if await queued_texture_recycling_checks(parent)!=0: return 1
+	if await queued_texture_recycling_checks(parent,true)!=0: return 1
+	if await queued_texture_recycling_checks(parent,false,true)!=0: return 1
+	if await texture_recycling_checks(parent)!=0: return 1
+	if await texture_recycling_checks(parent,false,false,true)!=0: return 1
+	if await texture_recycling_checks(parent,true)!=0: return 1
+	if await texture_recycling_checks(parent,true,true)!=0: return 1
 	if await texture_pipeline_checks(parent)!=0: return 1
 	for mode in range(6):
 		if await cancelled_decode_checks(parent,mode)!=0: return 1

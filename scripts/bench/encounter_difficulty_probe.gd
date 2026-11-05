@@ -95,6 +95,17 @@ func finish() -> String:
 		var p90_index := mini(
 			int(floor(float(sorted_active.size() - 1) * 0.90)), sorted_active.size() - 1)
 		p90_active = sorted_active[p90_index]
+	# 复用已采样的攻击者序列，单独报告完全没有攻击者的时长和最长连续空档。
+	var quiet_samples := 0
+	var quiet_streak := 0
+	var longest_quiet := 0
+	for active in _active_samples:
+		if active == 0:
+			quiet_samples += 1
+			quiet_streak += 1
+			longest_quiet = maxi(longest_quiet, quiet_streak)
+		else:
+			quiet_streak = 0
 	var stats := EventLogger.format_stats_summary()
 	var summary := "encounter_difficulty seed=42 player_squad=%d response=%d token_budget=%d\n" % [
 		_mode._squad_members_alive().size() if _mode.has_method("_squad_members_alive") else 1,
@@ -106,6 +117,8 @@ func finish() -> String:
 		_active_pressure_sum / divisor, p90_active, _max_active_pressure,
 		_first_contact_s, _mode._spawner.kill_count if _mode._spawner else 0,
 	]
+	summary += "tempo quiet_pct=%.1f longest_quiet_s=%.2f\n" % [
+		100.0 * quiet_samples / divisor, longest_quiet * SAMPLE_INTERVAL_S]
 	summary += "cohesion retained_pct=%.2f avg_slot_error_px=%.2f max_slot_error_px=%.2f sampled_wingmen=%.0f\n" % [
 		100.0 * _formation_retained_sum / wingman_divisor,
 		_slot_error_sum / maxf(float(_slot_error_samples), 1.0),

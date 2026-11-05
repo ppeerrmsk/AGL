@@ -22,6 +22,7 @@ func run() -> void:
 	_test_activation_matrix()
 	_test_hundred_plus_latent_population()
 	_test_camera_observation()
+	_test_strategic_ingress()
 	_test_road_index_equivalence()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
@@ -87,6 +88,76 @@ func _test_camera_observation() -> void:
 	mode.observed = false
 	mission._ensure_spawned_for_active_zones()
 	_check("镜头移开不撤销已生成内容", mission._spawned_zones.has(&"E"))
+	mission.free()
+	player.free()
+	mode.free()
+
+func _test_strategic_ingress() -> void:
+	var zones := ZoneData.new(Callable(), false, true)
+	for zone in zones.get_zone_definitions():
+		zones.set_state(zone["id"], ZoneData.State.LOCKED)
+	zones.set_state(&"E", ZoneData.State.AVAILABLE)
+	zones.set_mission_type(&"E", "squadron")
+	zones._difficulties[&"E"] = 1
+	var mode := ViewMode.new()
+	var player := Aircraft.new()
+	player.position = Vector2(80000, 80000)
+	var mission := SpawnProbe.new()
+	mission.mode = mode
+	mission._player = player
+	mission._zones = zones
+	var center := zones.get_zone_center(&"E")
+	mission._ensure_spawned_for_active_zones()
+	var edge := mission._planned_flight_position(&"E", center, 1800.0)
+	mission._ensure_spawned_for_active_zones(4.0)
+	var inbound := mission._planned_flight_position(&"E", center, 1800.0)
+	_check("无人观察四秒：零实体，航路向战区推进 500px",
+		mission.calls == 0 and is_equal_approx(edge.distance_to(inbound), 500.0)
+		and inbound.distance_to(center) < edge.distance_to(center))
+	var follower := mission._planned_flight_position(&"E", center, 1800.0, 2)
+	_check("第二梯队与先头队保留在途间距", is_equal_approx(follower.distance_to(inbound), 960.0))
+	# 镜头仍在远处，只有玩家沿航线接近；在目标区外同样能截获敌机。
+	var distant := player.position
+	player.position = inbound
+	mission._ensure_spawned_for_active_zones()
+	_check("离开目标区的途中进入雷达也能接续真机", mission.calls == 1)
+	player.position = distant
+	mode.observed = true
+	mission.prepare_visible_zones()
+	_check("转镜头不重置起飞时刻或重复推进", mission.calls == 1 and
+		inbound.is_equal_approx(mission._planned_flight_position(&"E", center, 1800.0)))
+	mission._triggered_zones[&"E"] = true
+	var hostile := Aircraft.new()
+	hostile.team = CombatUnit.TEAM_HOSTILE
+	mission._spawned_zones[&"E"] = [hostile]
+	var spawner := SurvivorSpawner.new()
+	spawner.mode = mode
+	spawner.player_aircraft = player
+	spawner.zone_mission = mission
+	var previous_director := EncounterDirector._active
+	var director := EncounterDirector.new(spawner)
+	_check("远方已触发任务允许旅途增援", not mission.mission_reserves_reinforcements())
+	_check("正式导演最终准入也允许远方任务空档补队", director.global_admission(1.0, 1).get("admitted", false))
+	hostile.position = player.position + Vector2(6000.0, 0.0)
+	hostile.speed = 300.0
+	hostile.heading = -PI * 0.5
+	_check("18 秒内迎头进入接敌圈的任务队提前占位", mission.mission_reserves_reinforcements())
+	_check("正式导演在预计接敌前同步预留", director.global_admission(1.0, 1).get("reason", "") == "mission_reserved")
+	hostile.set_meta("zone_ingress", true)
+	_check("未接敌的任务在途机计为半份预计压力", director._derive_state(hostile, 0.0) == EncounterDirector.PressureState.APPROACHING)
+	hostile.heading = PI * 0.5
+	_check("相同距离但向外飞行时允许派队", not mission.mission_reserves_reinforcements())
+	hostile.position = player.position
+	_check("任务敌军抵近才预留交战空间", mission.mission_reserves_reinforcements())
+	hostile.free()
+	_check("已释放的目标不占增援名额", not mission.mission_reserves_reinforcements())
+	zones.set_mission_type(&"E", "bomber_escort")
+	_check("专属护送仍保留自己的追兵节奏", mission.mission_reserves_reinforcements())
+	mission.reset_zone(&"E")
+	_check("重开战区丢弃上一轮航路", mission._flight_plans.is_empty())
+	director.shutdown()
+	EncounterDirector._active = previous_director
+	spawner.free()
 	mission.free()
 	player.free()
 	mode.free()

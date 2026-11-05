@@ -155,6 +155,7 @@ func run() -> void:
 		and is_equal_approx(ac._bank_rate_rad_s, st.bank_rate_rad_s)
 		and is_equal_approx(ac._prev_bank_for_rate, st.prev_bank_for_rate))
 
+	_display_regression(ac)
 	ac.free()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
@@ -166,3 +167,29 @@ func _check(label: String, condition: bool) -> void:
 	else:
 		_fail += 1
 		print("  ✗ %s" % label)
+
+
+func _display_regression(ac: Aircraft) -> void:
+	var curve := preload("res://scripts/rendering/prediction_curve.gd")
+	ac.position = Vector2(45.0, 0.0)
+	ac._predicted_path_world = PackedVector2Array([Vector2.ZERO, Vector2(100, 0), Vector2(200, 0)])
+	ac._predicted_path_healths = PackedFloat32Array([1.0, 0.5, 0.0])
+	AircraftRenderer.update_prediction_display(ac, 1.0 / 120.0)
+	_check("旧缓存起点落后45px，显示线仍精确连住当前机体", ac._predicted_path_smooth_world[0] == ac.position)
+	_check("裁掉已飞过近端，首段不会倒向旧起点", ac._predicted_path_smooth_world[1].x >= ac.position.x)
+	_check("完整保留预测末端", ac._predicted_path_smooth_world[-1] == Vector2(200, 0))
+	ac._predicted_path_world = PackedVector2Array([Vector2(45, 0), Vector2(80, 10)])
+	ac._predicted_path_healths = PackedFloat32Array([1.0, 0.3])
+	AircraftRenderer.update_prediction_display(ac, 1.0 / 120.0)
+	_check("到达截短改变输入点数也不瞬切末端", ac._predicted_path_smooth_world[-1].x > 80.0 and ac._predicted_path_smooth_world[-1].x < 200.0)
+	_check("不同输入点数维持固定显示参数", ac._predicted_path_smooth_world.size() == curve.POINT_COUNT)
+	var repeated := PackedVector2Array([Vector2(1, 1), Vector2(1, 1), Vector2(1, 1)])
+	var sampled: Dictionary = curve.resample(repeated, PackedFloat32Array())
+	_check("零长度与重复点无NaN", (sampled["points"] as PackedVector2Array)[-1].is_finite())
+	_check("退化末端不凭空朝北", curve.tip_direction(repeated) == Vector2.ZERO)
+	_check("重复尾点仍找到真实朝东切线", curve.tip_direction(PackedVector2Array([Vector2.ZERO, Vector2(5, 0), Vector2(5, 0)])) == Vector2.RIGHT)
+	var source := ac._predicted_path_world.duplicate()
+	for i in range(120):
+		AircraftRenderer.update_prediction_display(ac, 1.0 / 120.0)
+	_check("显示平滑收敛且不改权威预测缓存", ac._predicted_path_smooth_world[-1].distance_to(Vector2(80, 10)) < 0.01 and ac._predicted_path_world == source)
+	ac._predicted_path_build = null

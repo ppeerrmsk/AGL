@@ -2326,7 +2326,8 @@ class RadarDisplay extends Control:
 			get_canvas_item(), trail_points, trail_colors, 1.0, false)
 
 		# 更新 blip 并绘制战斗单位（飞机 + 地面）
-		var player_pos := player_ac.global_position
+		var display_pacing := preload("res://scripts/util/display_pacing.gd")
+		var player_pos := display_pacing.display_origin(player_ac)
 		const TGT_COLOR := Color(1.0, 0.85, 0.2, 1.0)  ## TGT 任务目标专用黄色（与战术地图一致）
 
 		for unit in CombatUnit.all_units:
@@ -2340,7 +2341,7 @@ class RadarDisplay extends Control:
 			if stealth_hint_contact:
 				_blip_ages.erase(unit.get_instance_id())
 
-			var rel := unit.global_position - player_pos
+			var rel := display_pacing.display_origin(unit) - player_pos
 			var dist := rel.length()
 			if dist > RADAR_RANGE:
 				continue
@@ -2425,14 +2426,14 @@ class RadarDisplay extends Control:
 		var warning_pulse: float = lerpf(0.65, 1.0, absf(sin(hud.game_time * TAU * 3.3)))
 		var missile_mgr = hud.game_scene.get_node_or_null("MissileManager")
 		if missile_mgr:
-			for child in missile_mgr.get_children():
-				if not child is Missile:
+			for child in Missile.active_missiles:
+				if not is_instance_valid(child) or not child is Missile:
 					continue
 				var m: Missile = child
 				# 与世界警告共用 Missile 的唯一来袭判定；VLS 预末段按目标分配保留警告。
 				if not m.is_incoming_warning_for(player_ac):
 					continue
-				var rel_m := m.global_position - player_pos
+				var rel_m := display_pacing.display_origin(m) - player_pos
 				has_incoming = true
 				var dist_m := rel_m.length()
 				if dist_m > RADAR_RANGE:
@@ -2521,19 +2522,16 @@ class ThreatOverlay extends Control:
 			return
 
 		var vp_size := hud.hud_viewport_size()
-		var cam_pos := camera.global_position
-		var zoom := camera.zoom
-		var half_vp := vp_size / (2.0 * zoom)
-
-		var screen_left := cam_pos.x - half_vp.x
-		var screen_right := cam_pos.x + half_vp.x
-		var screen_top := cam_pos.y - half_vp.y
-		var screen_bottom := cam_pos.y + half_vp.y
+		var display_pacing := preload("res://scripts/util/display_pacing.gd")
+		var cam_pos := camera.get_screen_center_position()
+		var world_to_hud := get_global_transform_with_canvas().affine_inverse() * player_ac.get_canvas_transform()
+		var screen_rect := Rect2(Vector2.ZERO, vp_size)
 
 		# 玩家自身离屏时在边缘显示蓝色方向指示（自由视野下定位自己）
-		var ppos := player_ac.global_position
-		if ppos.x < screen_left or ppos.x > screen_right or ppos.y < screen_top or ppos.y > screen_bottom:
-			var pdir := (ppos - cam_pos).normalized()
+		var ppos := display_pacing.display_origin(player_ac)
+		var player_screen := world_to_hud * ppos
+		if not screen_rect.has_point(player_screen):
+			var pdir := (player_screen - vp_size * 0.5).normalized()
 			var pcenter := vp_size * 0.5
 			var parrow_pos := _edge_intersect(pcenter, pdir, vp_size)
 			_draw_threat_arrow(parrow_pos, pdir, ThemeColors.RADAR_PLAYER)
@@ -2577,8 +2575,8 @@ class ThreatOverlay extends Control:
 			draw_string(font, Vector2(hx, hint_cy), key_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, ThemeColors.RADAR_PLAYER)
 			draw_string(font, Vector2(hx + key_size.x + gap, hint_cy), hint_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, ThemeColors.TEXT_MUTED)
 
-		for child in scene.get_children():
-			if not child is Aircraft:
+		for child in CombatUnit.all_units:
+			if not is_instance_valid(child) or not child is Aircraft:
 				continue
 			var ac: Aircraft = child
 			if ac.team != CombatUnit.TEAM_HOSTILE or ac.is_destroyed:
@@ -2594,11 +2592,11 @@ class ThreatOverlay extends Control:
 			if not is_threat:
 				continue
 
-			var epos := ac.global_position
-			if epos.x >= screen_left and epos.x <= screen_right and epos.y >= screen_top and epos.y <= screen_bottom:
+			var enemy_screen := world_to_hud * display_pacing.display_origin(ac)
+			if screen_rect.has_point(enemy_screen):
 				continue
 
-			var dir := (epos - cam_pos).normalized()
+			var dir := (enemy_screen - vp_size * 0.5).normalized()
 			var screen_center := vp_size * 0.5
 			var screen_dir := Vector2(dir.x, dir.y).normalized()
 			var arrow_pos := _edge_intersect(screen_center, screen_dir, vp_size)

@@ -386,4 +386,4 @@ func _finish() -> void:
 	for failure in _failures:
 		printerr("[MapDetailAtlasQa] FAIL: %s" % failure)
 	await get_tree().process_frame
-	get_tree().quit(0 if _failures.is_empty() else 1)
+	AudioManager.request_quit(0 if _failures.is_empty() else 1)

@@ -31,7 +31,12 @@ const EXTEND_LEG_PX := 4500.0      ## 掠远腿长（> D_EXTEND，含裕量）
 const WP_REFRESH_NEAR_PX := 400.0  ## 掠远航点快到了还没拉开 → 顺沿续腿
 const TICK_S := 0.5                ## 决策分频
 
-var _squad                          ## AceSupportSquad（members/_player/line_spacing）
+## 战术由中队拥有；反向引用不得把两个 RefCounted 锁成环。
+var _squad_ref: WeakRef
+var _squad: Variant:
+	get:
+		var value: Variant = _squad_ref.get_ref() if _squad_ref != null else null
+		return value if typeof(value) == TYPE_OBJECT and is_instance_valid(value) else null
 var phase: int = Phase.CHARGE
 var _tick := 0.0
 var _volley_t := 0.0
@@ -40,7 +45,7 @@ var _fired: Dictionary = {}         ## iid → 本波已射（已抽回 EXTEND �
 
 
 func _init(squad) -> void:
-	_squad = squad
+	_squad_ref = weakref(squad)
 
 
 ## 齐射目标分配（spec §3.2 round-robin）：attacker i → target (i mod n)。
@@ -53,6 +58,8 @@ static func assign_targets(attacker_count: int, target_count: int) -> Array:
 
 
 func enter() -> void:
+	if _squad == null:
+		return
 	phase = Phase.CHARGE
 	_tick = 0.0
 	_enter_charge()
@@ -64,6 +71,8 @@ func exit() -> void:
 			ai.release_target(AIController.TargetSource.TS_BOSS, "lancer exit")
 
 func update(delta: float) -> void:
+	if _squad == null:
+		return
 	if phase == Phase.VOLLEY:
 		_volley_t += delta
 	_tick -= delta
@@ -225,6 +234,8 @@ func _targets() -> Array:
 ## Teacher 等非骑士成员归基类 PURSUIT，绝不碰
 func _alive_members() -> Array:
 	var out: Array = []
+	if _squad == null:
+		return out
 	for m in _squad.members:
 		if is_instance_valid(m) and not m.is_destroyed and m.has_meta(&"ace_tactics_owned"):
 			out.append(m)

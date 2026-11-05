@@ -113,7 +113,11 @@ func _update_movement(delta: float) -> void:
 
 	speed = max_ground_speed
 	var vel := Vector2(sin(heading), -cos(heading)) * speed * PIXELS_PER_METER
-	global_position += vel * delta
+	var next_position := global_position + vel * delta
+	if not MapGeography.is_ground_footprint_clear(next_position):
+		speed = 0.0
+		return
+	global_position = next_position
 	rotation = heading
 
 # ========== 高度 ==========
@@ -340,7 +344,7 @@ func _draw() -> void:
 
 
 func _draw_impl() -> void:
-	AircraftRenderer.clear_unit_status_panel(self)
+	AircraftRenderer.register_status_subject(self)
 	if is_destroyed:
 		_draw_destroyed()
 		return
@@ -427,18 +431,12 @@ func _draw_destroyed() -> void:
 	draw_line(Vector2(size, -size), Vector2(-size, size), color, 2.0)
 
 func _draw_data_label() -> void:
-	if not _font:
-		_font = ThemeDB.fallback_font
-	var compact := _should_draw_compact_data_label()
-	var xform := get_global_transform_with_canvas()
-	var view_scale := xform.basis_xform(Vector2.RIGHT).length()
-	var screen_offset := AircraftRenderer.unit_status_screen_offset_for(
-		_status_label_icon_radius_world(), view_scale, xform.origin)
-	AircraftRenderer.draw_unit_status_panel(self, _font,
-		_status_label_lines(compact), team, screen_offset)
+	AircraftRenderer.draw_status_snapshot(self)
 
 
-## 子类只覆写内容，不得再复制状态栏几何、旋转或缩放代码。
+func status_label_visible() -> bool:
+	return true
+
 func _status_label_lines(compact: bool) -> PackedStringArray:
 	var display_name: String = params.display_name if params else "GND"
 	var lines := PackedStringArray([
@@ -465,4 +463,4 @@ func _status_label_distance_m() -> float:
 
 
 func _status_label_icon_radius_world() -> float:
-	return 18.0
+	return 5.0 if float(get_meta(&"volume_ground_scale", 1.0)) < 1.0 else 18.0

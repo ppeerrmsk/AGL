@@ -9,11 +9,12 @@ extends RefCounted
 ## ~2750 px 半径。实测采样点 9.7% / 15.7% / 16.0% 落在陆地上。
 ##
 ## 现在：编队缩到装得进水域 + 旗舰恒定盘旋（不掉头）+ NavalPlacement 打分挑圆心。
-## 本测试用 40px 轨道步长独立复核最终摆位，并额外检查生成器的硬闸规划结果。
+## 本测试用 20px 轨道步长错相复核最终摆位，并额外检查生成器的硬闸规划结果。
 ##
 ## 运行：godot --headless --path . -- --bench=naval_zone_water（或 --bench=all）
 
-const VERIFY_STEP_PX := 40.0
+const VERIFY_STEP_PX := 20.0
+const Water := preload("res://scripts/naval/naval_water.gd")
 
 var _pass := 0
 var _fail := 0
@@ -29,6 +30,9 @@ func run() -> void:
 	_check_shrink_plan()
 	_check_no_water_fallback()
 	_check_csg()
+	_check_real_water_motion(Vector2(800, 7000), [2, 3])
+	_check_real_water_motion(Vector2(0, 2500), [])
+	_check_allied_coastal_motion()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -110,7 +114,7 @@ func _fake_shrink_placement(offsets: Array) -> Dictionary:
 ## 深内陆中心连单旗舰驻泊都无全水解：规划必须返回空，由 ZoneMission 原子退化为空战。
 func _check_no_water_fallback() -> void:
 	var inland := Vector2(-12000.0, -12000.0)
-	_check("深内陆回归锚点确认为陆地", MapGeography.is_on_land(inland))
+	_check("深内陆回归锚点确认为陆地", not Water.disk_clear(inland, 0))
 	_check("无水域解时硬闸返回空方案（零舰船 fallback）",
 		ZoneMission.safe_naval_plan(inland, 3).is_empty())
 
@@ -145,7 +149,7 @@ func _check_zone(z: Dictionary) -> void:
 			star, ring_used, reach, str(c.round()), c.distance_to(center), land])
 		_check("战区 %s %d★ 舰队占地 %.0f ≤ 可用水域 %.0f" % [String(z["label"]), star, reach, budget_r],
 			reach <= budget_r)
-		_check("战区 %s %d★ 舰队全程不上岸（40px 步长复核）" % [String(z["label"]), star], land == 0)
+		_check("战区 %s %d★ 舰队全程不上岸（20px 错相复核）" % [String(z["label"]), star], land == 0)
 		# 水域优先于"圈内"：窄水域（浦贺水道）里挪不出既贴中心又全水的位置时，
 		# 允许舰队外圈溢出战区环 —— 但溢出必须有界，否则任务目标会跑到玩家找不到的地方
 		_check("战区 %s %d★ 舰队溢出战区环有界（圆心 %.0f + 占地 %.0f ≤ 半径 + 2000）" % [
@@ -180,23 +184,23 @@ func _check_csg() -> void:
 		var land: int = _verify_land_hits(c, ring_used, offsets, head)
 		print("   %s 锚点 %s → 摆位圆心 %s（挪了 %.0f px）；盘旋半径 %.0f、占地半径 %.0f；加密复核落地 %d 点" % [
 			label, str(anchor.round()), str(c.round()), c.distance_to(anchor), ring_used, reach, land])
-		_check("CSG %s 锚点舰队全程不上岸（40px 步长复核）" % label, land == 0)
+		_check("CSG %s 锚点舰队全程不上岸（20px 错相复核）" % label, int(picked["land"]) == 0 and land == 0)
 
 
-## 独立复核：沿每艘船的轨道圆用 40px 步长扫一遍。
+## 独立复核：沿每艘船的轨道圆用 20px 步长错半步复核。
 func _verify_land_hits(center: Vector2, ring: float, offsets: Array, base_heading_rad: float = 0.0) -> int:
 	var land := 0
 	if ring <= 1.0:
 		# 原地驻泊：舰队完全不动，只有出生那一组位置
 		for p in NavalPlacement.fleet_positions(center, 0.0, offsets, base_heading_rad):
-			if MapGeography.is_on_land(p):
+			if not Water.disk_clear(p, 86.0):
 				land += 1
 		return land
 	for r in NavalPlacement.ship_orbit_radii(ring, offsets):
 		var n: int = clampi(ceili(TAU * r / VERIFY_STEP_PX), 8, 1024)
 		for k in range(n):
-			var a: float = TAU * float(k) / float(n)
-			if MapGeography.is_on_land(center + Vector2(cos(a), sin(a)) * r):
+			var a: float = TAU * (float(k) + 0.5) / float(n)
+			if not Water.disk_clear(center + Vector2(cos(a), sin(a)) * r, 86.0):
 				land += 1
 	return land
 
@@ -212,7 +216,7 @@ func _water_budget(center: Vector2, zone_radius: float) -> Dictionary:
 			var c: Vector2 = center + Vector2(float(ix) * step, float(iy) * step)
 			if c.distance_to(center) > zone_radius:
 				continue
-			if MapGeography.is_on_land(c):
+			if not Water.disk_clear(c, 0.0):
 				continue
 			var r: float = 0.0
 			var probe: float = 250.0
@@ -220,7 +224,7 @@ func _water_budget(center: Vector2, zone_radius: float) -> Dictionary:
 				var clear := true
 				for k in range(16):
 					var a: float = TAU * float(k) / 16.0
-					if MapGeography.is_on_land(c + Vector2(cos(a), sin(a)) * probe):
+					if not Water.disk_clear(c + Vector2(cos(a), sin(a)) * probe, 0.0):
 						clear = false
 						break
 				if not clear:
@@ -239,3 +243,78 @@ func _check(label: String, ok: bool) -> void:
 	else:
 		_fail += 1
 		printerr("   ✗ %s" % label)
+
+## 真实东京地图 + 正式生成器 + 实际运动；不再以理想圆替代行驶证据。
+func _check_real_water_motion(center: Vector2, moored_stars: Array) -> void:
+	for star in [1, 2, 3]:
+		var mission := ZoneMission.new()
+		var mode := Node2D.new()
+		mission.mode = mode
+		var ok := mission._spawn_naval_formation(&"NAVAL_MOTION_TEST", center, star,
+			load("res://resources/naval/frigate_ffg.tres"))
+		var ships: Array = mission._spawned_zones.get(&"NAVAL_MOTION_TEST", [])
+		# 离树同步夹具显式补齐正常_ready的航向初始化，再按正式偏移摆位。
+		for ship: NavalUnit in ships:
+			ship.heading = deg_to_rad(ship.initial_heading_deg)
+			ship.rotation = ship.heading
+			if ship.formation_leader != null:
+				var leader: NavalUnit = ship.formation_leader
+				ship.position = leader.position + Vector2(sin(leader.heading), -cos(leader.heading)) * ship.formation_offset.x \
+					+ Vector2(cos(leader.heading), sin(leader.heading)) * ship.formation_offset.y
+		var safe := ok and not ships.is_empty()
+		var largest_displacement := 0.0
+		var starting_positions: Array[Vector2] = []
+		for ship: NavalUnit in ships:
+			starting_positions.append(ship.position)
+		# 30分钟，以1秒步长走正式运动；每10秒独立检查全船体净空。
+		for second in 1800:
+			for i in ships.size():
+				var ship: NavalUnit = ships[i]
+				ship._update_movement(1.0)
+				largest_displacement = maxf(largest_displacement, ship.position.distance_to(starting_positions[i]))
+				if second % 10 == 0:
+					var hull := Vector2(ship.params.hull_length, ship.params.hull_width).length() * 0.5
+					safe = safe and Water.disk_clear(ship.position, hull)
+		_check("东京 %s %d星全船体30分钟保持水域" % [center, star], safe)
+		if star in moored_stars:
+			_check("窄水域%d星零半径全队驻泊不漂移" % star, not ships.is_empty() and ships[0].patrol_radius == 0.0
+				and largest_displacement < 0.1 and ships.all(func(ship): return ship.speed == 0.0))
+		else:
+			_check("东京 %s %d星舰队确实巡航" % [center, star], not ships.is_empty() and ships[0].patrol_radius > 1.0
+				and largest_displacement > 100.0 and ships[0].speed > 0.0)
+		mode.free()
+		mission.free()
+
+## 截图中的绿色DDG+FFG走正式气氛友舰生成路径，覆盖富津沙嘴邻近水域。
+func _check_allied_coastal_motion() -> void:
+	var mode := Node2D.new()
+	var spawner := SurvivorSpawner.new()
+	var controller := ZoneAtmosphereCombat.new()
+	controller._mode = mode
+	controller._spawner = spawner
+	# 富津尖端的实际地表三角形重心，旧街区/道路并集及手绘陆地都漏掉了它。
+	var tip := Vector2(1079.432, 6898.463)
+	_check("旧地理判定可复现富津尖端被识别为水面", not MapGeography.is_on_land(tip))
+	_check("正式地表的富津尖端禁止驻泊", not Water.disk_clear(tip, 0) and NavalPlacement.score(tip, 0, []) > 0)
+	_check("富津尖端西北的外海允许整艘护卫舰", Water.disk_clear(Vector2(600, 6700), 40))
+	var opponents: Array[CombatUnit] = []
+	var ships := controller._spawn_allied_naval(&"COAST_TEST", Vector2(800, 6400), 1800.0, opponents)
+	var safe := ships.size() == 2
+	var travelled := 0.0
+	for value in ships:
+		var ship := value as NavalUnit
+		ship.heading = deg_to_rad(ship.initial_heading_deg)
+		ship.rotation = ship.heading
+	for second in 1800:
+		for value in ships:
+			var ship := value as NavalUnit
+			var previous := ship.position
+			ship._update_movement(1.0)
+			travelled += previous.distance_to(ship.position)
+			if second % 10 == 0:
+				var hull := Vector2(ship.params.hull_length, ship.params.hull_width).length() * 0.5
+				safe = safe and Water.disk_clear(ship.position, hull)
+	_check("富津沙嘴邻近正式绿色友舰实走30分钟，船体保持水域", safe and travelled > 1000.0)
+	mode.free()
+	spawner.free()
+	controller.free()

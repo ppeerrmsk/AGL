@@ -141,11 +141,29 @@ func _test_hostile_zone_edge_ingress() -> void:
 		and not aircraft.has_meta("zone_ingress_center")
 		and not aircraft.has_meta("zone_ingress_arrive_radius"))
 
-	var mission_source := FileAccess.get_file_as_string(
-		"res://scripts/survivor/zone_mission.gd")
-	_check("空战 TGT、普通驻守与 Sentinel 驻守均消费同一边缘入口",
-		mission_source.count("_zone_air_spawn_origin(center)") >= 3
-		and mission_source.count("_tag_zone_air_ingress(") >= 5)
+	# 使用正式中队工厂承接一条已经走了 20 秒的战略航路。
+	var zones := ZoneData.new(Callable(), false, true)
+	zones._difficulties[&"E"] = 1
+	var progression := SurvivorPlayer.new()
+	progression.aircraft = player
+	var previous_director := EncounterDirector._active
+	spawner.setup(mode, player, progression, null, null)
+	mission.mode = mode
+	mission._player = player
+	mission._zones = zones
+	mission._flight_clock = 20.0
+	mission._flight_plans[&"E"] = {"edge": entry, "start": 0.0}
+	var zone := {"center": center, "radius": 3500.0}
+	mission._spawn_air_squadron(&"E", zone)
+	var squadron: Array = mission._spawned_zones.get(&"E", [])
+	var lead: Aircraft = squadron.front() if not squadron.is_empty() else null
+	_check("正式空战目标接续 20 秒航程，长机已离开边缘 2500px",
+		squadron.size() == SurvivorData.air_squadron_count_for_difficulty(1)
+		and lead != null and is_equal_approx(lead.position.distance_to(entry), 2500.0)
+		and lead.get_meta("zone_ingress", false))
+	spawner._exit_tree()
+	EncounterDirector._active = previous_director
+	progression.free()
 
 	aircraft.free()
 	mission.free()

@@ -3,7 +3,7 @@ id: missile-launch-discipline
 kind: system
 status: done
 schema_version: 1
-spec_version: 3
+spec_version: 4
 owner: user
 depends_on: [systems/weapon-employment-doctrine, systems/multi-target-missile-locks]
 reconstruction_complete: true
@@ -74,6 +74,18 @@ reconstruction_complete: true
 
 已锁定且进入中距发射带时，发射前 planner 必须直接追踪与第 3–5 步同一个两轮 TTI 前置点；锁定本身不得提前触发 crank。只有导弹已出筒、需要短时支援时才进入既有 crank 几何。当前目标 LOS、发射门前置解与 planner 追踪点不得各自重算或分叉。
 
+### 3.1a 玩家追击的发射姿态闭环
+
+玩家偏好控制路径保留完整转弯能力，但不能在已有发射解时持续高坡度跟转而永远被自身火控拒绝。
+
+- 只对玩家偏好路径的 `CLOSE_TAIL / TAIL_CHASE / LEAD_TURN / LEAD_PURSUIT / LAG_PURSUIT` 生效；AI 既有物理降坡不重复叠加。
+- 当前空中目标已满锁，主弹有余弹、非装填、冷却归零，且不在 JAM、规避、加力窗口、外部导弹控制或发射后支援期。
+- 距离处于既有预发射追踪带：`min_range × 1.5 < distance ≤ max_range_rear × 0.7`；当前点及两轮前置点均通过原物理包络。
+- 以 `clamp(missile_skill + missile_skill_jitter, 0, 1)` 的最严格端验证当前偏角与前置偏角，不为飞行指令抽取随机熟练度。
+- 以上成立且 plan 允许导弹时，使用已有 `bank_limit_deg` 接口，将目标坡度限制为同源稳定窗口上限减 `2°`。余量用于让连续滚转控制确实越过发射门槛，不改变实际发射的任一阈值。
+- 航点、手动意图、机炮优先、双击冲锋、规避、脱离、慢空中/面目标攻击跑、电磁炮直线充能与尚未收敛的包围门不被接管。失锁、出角度门、出弹或进入冷却后自然解除此建议。
+- 不新增常驻 tick、全场扫描或 Object 缓存；Situation 只携带数值建议，planner 仍是纯数据决策。
+
 ### 3.2 初始朝向
 
 飞机发射的导弹复用 §2.3 的两轮前置点，把初始 heading 指向预测命中点，再相对发射机 heading 限制到 `±60°`；初始位置沿最终 heading 前移 `15 px`。发射门、发射前 planner 与离架航向共用 `AircraftWeapons.missile_lead_point`，使 `guidance_delay` 内也直接朝同一前置点飞。
@@ -107,6 +119,12 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 - [x] i18n：无新增玩家可见文本。
 - [x] 文档：本 spec 已登记 _INDEX；reference 索引同步。
 
+- [x] 同向盘旋日志几何经真实 planner、物理滚转及武器提交后及时出弹；旧决策对照保持拒射。
+- [x] 无锁、未对准、无弹、冷却、装填、JAM、规避、机炮优先、支援期、AI 与航点负例不误收坡。
+
+- [x] 本轮 `weapon` 50/50、`waypoint_fire` 30/30、标准 `all` 105 项及 93 项生命周期全通过，运行时错误门通过。
+- [x] 性能 E0：只在既有玩家 planner 快照中计算当前目标的常数次几何，不新增 tick、draw、实体、弹丸额度、全场扫描或跨帧缓存。按性能守则 R7 采用静态审计及聚焦回归豁免新增 Visual 压测；本轮不声明新的 FPS 或整局平衡结论。
+
 ## 6. 实现计划（Task Pipeline —— 工作令）
 
 ### 阶段 1 — 参数与几何
@@ -126,13 +144,17 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 - [x] 区分未出弹的拦截收敛与已出弹的 crank 支援。
 - [x] 聚焦回归复制高速横穿的真实发射门序列。
 
+### 阶段 5 — 玩家发射姿态闭环
+- [x] 武器层提供同源稳定坡度建议，Situation 数值透传，planner 在追击与保持分支消费。
+- [x] 真实 60Hz 追击/滚转/离架对照与禁入边界通过，普通 F5 默认生效。
+
 ## 7. 索引锚点（Where —— 唯一允许放指针的地方）
 
 | 关注点 | 文件 |
 |---|---|
 | 参数 | `scripts/combat_params.gd`、`resources/*_combat.tres` |
 | 发射门 | `scripts/aircraft/aircraft_weapons.gd` |
-| 发射前战术追踪 | `scripts/ai/tactical/bfm_intent.gd` |
+| 发射前战术追踪与姿态 | `scripts/ai/tactical/bfm_intent.gd`、`scripts/ai/tactical/situation.gd`、`scripts/ai/tactical/tactical_planner.gd` |
 | 包络几何 | `scripts/aircraft/aircraft_combat_tracking.gd` |
 | 初始朝向 | `scripts/missile_manager.gd` |
 | 聚焦测试 | `scripts/tests/test_waypoint_fire_control.gd`、`scripts/tests/test_weapon_behavior.gd` |
@@ -145,3 +167,4 @@ VLS 继续使用 LOS 加每发 `±25°` 散布；地面与舰载 SAM 继续使�
 | 2026-08-16 | 1 | 将历史 missile-skill-gate 按当前主线架构重建为权威规格；保留前置几何与技能档位，明确排除地面/舰载/VLS。 |
 | 2026-08-16 | 2 | 当前主线语义移植完成；weapon 29/29、waypoint 30/30、surface pass 32/32、TIGHT 齐射 10/10、fire allocation 15/15、BOSS 33/33，两个压力场末秒均为 145 帧。 |
 | 2026-08-18 | 3 | 修复高速横穿时 planner 的预发射 crank/LOS 与武器层前置门不一致：三个消费者共用两轮 TTI 前置点，crank 限已出弹支援期；`weapon` 33/33。 |
+| 2026-11-01 | 4 | 根据 combat_log_20261031_224050 补齐玩家追击的发射姿态闭环；保持全部火控门槛，使用同源坡度建议创造窗口。`weapon` 50/50、`waypoint_fire` 30/30、`all` 105 项及生命周期 93 项全部通过；复核见 [狗斗发射窗口记录](../../audits/2026-11-01-dogfight-launch-window.md)。 |

@@ -44,6 +44,7 @@ func _test_wraith_fear_loadout() -> void:
 	for count: int in [-1, 0, 1, 2, 3, 4, 12]:
 		var encounter := F47AceSquad.new()
 		encounter.configure_progression(count)
+		_check("历史 %d 固定六机本体" % count, encounter.squad_size == 6, "")
 		var unlocked := count >= 3
 		_check("历史 %d 次的恐惧配置门" % count,
 			(encounter.fear_cone_config != null) == unlocked, "")

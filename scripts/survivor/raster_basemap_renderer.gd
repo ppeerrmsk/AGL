@@ -592,11 +592,8 @@ func _add_tile(
 	if fade_in:
 		PerfBuckets.mark_frame_event("raster_tile_bind")
 		PerfBuckets.count("raster_tile_binds")
-	if fade_in and lod == _current_lod and layer.visible:
-		sprite.modulate.a = 0.0
-		var tween: Tween = sprite.create_tween()
-		tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		tween.tween_property(sprite, "modulate:a", 1.0, TRANSITION_S)
+	# 同档补入的纹理必须首帧不透明，避免底层旧 PNG 在 0.4 秒淡入期间显露。
+	# 跨档仍由整层交叉淡入处理，保持旧层完整覆盖到目标层就绪。
 
 
 func _try_begin_transition() -> void:

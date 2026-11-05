@@ -79,7 +79,12 @@ const PX_PER_M := 0.5                 ## CombatUnit.PIXELS_PER_METER
 var phase: int = Phase.PERCH
 var phase_timer: float = 0.0
 
-var _squad: AceSquad = null
+## 中队拥有战术，反向只观察，避免 RefCounted 循环保活。
+var _squad_ref: WeakRef
+var _squad: AceSquad:
+	get:
+		var value: Variant = _squad_ref.get_ref() if _squad_ref != null else null
+		return value as AceSquad if typeof(value) == TYPE_OBJECT and is_instance_valid(value) else null
 var _bait: Aircraft = null
 var _bite_timer: float = 0.0          ## 玩家咬住 BAIT 的累计时长
 var _degrade_timer: float = 0.0       ## 平均机头偏角连续超标的累计时长
@@ -92,7 +97,7 @@ var _log_name: String = "WRAITH"
 # ══════════════════════════════════════════════
 
 func setup(squad: AceSquad) -> void:
-	_squad = squad
+	_squad_ref = weakref(squad) if squad != null else null
 	_log_name = squad.display_name if squad != null else "WRAITH"
 
 ## 进入 PURSUIT 时调用：从 PERCH 起手
@@ -220,8 +225,8 @@ func _perch_enter() -> void:
 	for i in range(alive.size()):
 		var m: Aircraft = alive[i]
 		m.set_target_tier(tier)
-		# 爬升点：绕到玩家侧后方 standoff 处再爬，不贴脸。四机分散在扇面上避免撞一起
-		var ang: float = player.heading + PI + deg_to_rad(-45.0 + 30.0 * float(i))
+		# 爬升点：绕到玩家侧后方 standoff 处再爬，不贴脸。按存活人数对称分散，六机与减员后均不向一侧偏移
+		var ang: float = player.heading + PI + deg_to_rad(lerpf(-60.0, 60.0, float(i) / float(alive.size() - 1)) if alive.size() > 1 else 0.0)
 		var pt: Vector2 = player.global_position \
 				+ Vector2(sin(ang), -cos(ang)) * (PERCH_STANDOFF_M * PX_PER_M)
 		# combat_disabled=false：爬升途中仍可开火（directive 只接管导航）
@@ -389,10 +394,10 @@ func _reset_enter() -> void:
 	for i in range(alive.size()):
 		var m: Aircraft = alive[i]
 		m.set_target_tier(tier)   ## 脱离同时爬升，为下一轮 PERCH 预先攒高度
-		# 各自沿"背离玩家"的方向散开拉远，扇面避免四机挤成一条线
+		# 各自沿"背离玩家"的方向散开拉远，对称扇面避免六机挤成一条线
 		var away: Vector2 = m.global_position - player.global_position
 		var base_ang: float = away.angle() if away.length_squared() > 1.0 else m.heading
-		var ang: float = base_ang + deg_to_rad(-30.0 + 20.0 * float(i))
+		var ang: float = base_ang + deg_to_rad(lerpf(-45.0, 45.0, float(i) / float(alive.size() - 1)) if alive.size() > 1 else 0.0)
 		var pt: Vector2 = player.global_position \
 				+ Vector2(cos(ang), sin(ang)) * (RESET_EXTEND_M * PX_PER_M)
 		# combat_disabled=false：脱离是**几何行为**，不是缴械 —— 路上有解还是要打

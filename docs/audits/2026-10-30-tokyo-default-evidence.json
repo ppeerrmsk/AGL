@@ -1,0 +1,605 @@
+{
+  "schema": 1,
+  "date": "2026-10-30",
+  "workspace": "F:/AGL",
+  "user_authorized_default": true,
+  "default_enabled": true,
+  "manual_f5_feedback_received": false,
+  "installed_package": "resources\\maps\\tokyo_playable\\m20_motion_summary_v4_20261029\\package.json",
+  "package_sha256": "52734c5881ac2fc28807bba01efb882f1b84dd73ef1cba84468a9c6d4c9c33bc",
+  "source_sha256": "296cfbf680ab44adf3ebbb1429ead14ae012233dbc18eb046622e7a0cbcfc08e",
+  "budgets": {
+    "cache_mib": 384,
+    "display_mib": 96,
+    "triangles": 240000,
+    "pages": 16
+  },
+  "run_notes": {
+    "d1-all": "interrupted; no exit or final report; not counted as pass",
+    "d1-all-resume": "original 300 second limit; 104 synchronous tests passed; lifecycle chain incomplete; exit 124 retained",
+    "d1-all-complete": "same source; 600 second finite limit; 104 synchronous tests and lifecycle 93/0 completed; runtime gate and audio cleanup passed"
+  },
+  "runs": [
+    {
+      "kind": "focused",
+      "tag": "d1-focused",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "296CFBF680AB44ADF3EBBB1429EAD14AE012233DBC18EB046622E7A0CBCFC08E",
+      "default_route": true,
+      "exit_record_sha256": "78bf960ed61ce3ca396e3e06ad35830d55fcac15039a2b0a8dc19c57288670a4",
+      "log_sha256": "9d40069346bf7d468143a0669beba0b36dfc61d0a1c682ebdae911cb88423e11"
+    },
+    {
+      "kind": "all",
+      "tag": "d1-all-resume",
+      "exit_code": 124,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "296CFBF680AB44ADF3EBBB1429EAD14AE012233DBC18EB046622E7A0CBCFC08E",
+      "default_route": true,
+      "exit_record_sha256": "10f78041cf38ee7c6a3350e9fe179cea1b95110493c3172e588001dc2f8d2be4",
+      "log_sha256": "46e2a89666850bf9b43d3106797f8667ea70176fa70d140131e3d2a29a4bc5f5"
+    },
+    {
+      "kind": "return",
+      "tag": "d1-default-return",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "296CFBF680AB44ADF3EBBB1429EAD14AE012233DBC18EB046622E7A0CBCFC08E",
+      "default_route": true,
+      "exit_record_sha256": "e038756ff29d0b409981e6ae6d9073bbf01eaf72b11e2f412516e141cbbc0c53",
+      "log_sha256": "0d91493cd9d59ea5480a5c36525db0c86f90c20df910a9d5c60b2454d787a0e7",
+      "report_sha256": "fc8390b5e0a841663025aaa28135369886b458040e89370dcfea2fb9c9eeee55",
+      "package_path": "res://resources/maps/tokyo_playable/m20_motion_summary_v4_20261029/package.json",
+      "installed_motion_profile": true,
+      "explicit_package_override": false,
+      "combat_verified": true,
+      "camera_response": {
+        "max_wait_ms": 0,
+        "max_zoom": 4.22275543212891,
+        "min_zoom": 0.200000002980232,
+        "wait_clock": "controllable_input_time",
+        "wait_frames": 0,
+        "wait_limit_ms": 500,
+        "wait_metrics_available": true,
+        "wait_target_ms": 250,
+        "wall_wait_max_ms": 0,
+        "within_wait_target": true
+      },
+      "input_continuity": {
+        "camera_stops": [],
+        "clock": "wall_microseconds",
+        "freeze_detected": false,
+        "freeze_episodes": 0,
+        "freeze_ms": 250.0,
+        "map_limited_samples": 0,
+        "max_camera_stop_ms": 21.302,
+        "max_player_stop_ms": 36.804,
+        "max_present_gap_ms": 22.6,
+        "max_stationary_pan_ms": 0.0,
+        "max_stationary_zoom_ms": 0.0,
+        "max_zoom_stop_ms": 16.883,
+        "modal_ms": 196.446,
+        "notice_detected": false,
+        "notice_ms": 50.0,
+        "pixel_coverage_verified": false,
+        "present_hitches": [],
+        "space_cases": {
+          "0": {
+            "max_camera_stop_ms": 16.205,
+            "max_player_stop_ms": 32.092,
+            "max_present_gap_ms": 16.205
+          },
+          "1": {
+            "max_camera_stop_ms": 16.676,
+            "max_player_stop_ms": 26.154,
+            "max_present_gap_ms": 16.771
+          },
+          "2": {
+            "max_camera_stop_ms": 21.302,
+            "max_player_stop_ms": 29.099,
+            "max_present_gap_ms": 21.302
+          },
+          "3": {
+            "max_camera_stop_ms": 19.214,
+            "max_player_stop_ms": 29.419,
+            "max_present_gap_ms": 21.695
+          },
+          "4": {
+            "max_camera_stop_ms": 15.188,
+            "max_player_stop_ms": 26.77,
+            "max_present_gap_ms": 19.108
+          },
+          "5": {
+            "max_camera_stop_ms": 16.686,
+            "max_player_stop_ms": 24.658,
+            "max_present_gap_ms": 17.41
+          },
+          "6": {
+            "max_camera_stop_ms": 13.201,
+            "max_player_stop_ms": 25.244,
+            "max_present_gap_ms": 14.243
+          }
+        },
+        "stationary_pan_frames": 0,
+        "stationary_zoom_frames": 0,
+        "zoom_stops": []
+      },
+      "final_map_state": {
+        "cached_motion_select_peak_usec": 0,
+        "cached_motion_selects": 0,
+        "camera_wait_frames": 0,
+        "camera_wait_max_ms": 0,
+        "camera_wait_metrics_available": true,
+        "committed_catalog": 6,
+        "display_covered": true,
+        "display_qualified": true,
+        "screen_visible": true,
+        "summary_motion_adoptions": 1,
+        "summary_motion_commits": 3,
+        "summary_motion_refinements": 3
+      },
+      "stream_released": true,
+      "window_size": "(3840, 2160)",
+      "viewport_size": "(1920.0, 1080.0)",
+      "actual_vsync": 1,
+      "fail": 0,
+      "entry": {
+        "budget_frames": 0,
+        "camera_lag_frames": 0,
+        "composite_lag_frames": 0,
+        "first_visible_frame": 0,
+        "frames": 6721,
+        "hidden_frames": 0,
+        "input_events": 0,
+        "legacy_raster_visible_under_hlod_frames": 0,
+        "missing_frames": 0,
+        "performance_sample": false,
+        "raster_high_zoom_strategic_episodes": [],
+        "raster_high_zoom_strategic_frames": 0,
+        "raster_peak_fading_visible_tiles": 0,
+        "raster_peak_missing_visible_tiles": 0,
+        "raster_same_lod_fade_frames": 0,
+        "raster_visible_tile_missing_frames": 0,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0
+      },
+      "space_returns": 7
+    },
+    {
+      "kind": "sweep",
+      "tag": "d1-default-sweep",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "296CFBF680AB44ADF3EBBB1429EAD14AE012233DBC18EB046622E7A0CBCFC08E",
+      "default_route": true,
+      "exit_record_sha256": "0e7600837ae56777d49ca073671cd380bed2695168aa51c5deeff0c7420d634a",
+      "log_sha256": "cc720cf9dea52f614ea11a7c675d2148c272aeb28bc69569c3600a2cfeac8726",
+      "report_sha256": "32cf813572e41cf09c0b9541192dcbd8d19cf276339406579667313892236d3d",
+      "package_path": "res://resources/maps/tokyo_playable/m20_motion_summary_v4_20261029/package.json",
+      "installed_motion_profile": true,
+      "explicit_package_override": false,
+      "combat_verified": true,
+      "camera_response": {
+        "completed_phases": [
+          {
+            "end_ms": 3000,
+            "reached": true,
+            "target": 5.0,
+            "zoom": 4.99958944320679
+          },
+          {
+            "end_ms": 5000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200382456183434
+          },
+          {
+            "end_ms": 7000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22032594680786
+          },
+          {
+            "end_ms": 9000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200163871049881
+          },
+          {
+            "end_ms": 11000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22031688690186
+          },
+          {
+            "end_ms": 13000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200167000293732
+          },
+          {
+            "end_ms": 15000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22010469436646
+          },
+          {
+            "end_ms": 17000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.20013003051281
+          },
+          {
+            "end_ms": 19000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.21962118148804
+          },
+          {
+            "end_ms": 21000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200153529644012
+          },
+          {
+            "end_ms": 23000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22010374069214
+          },
+          {
+            "end_ms": 25000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200153604149818
+          },
+          {
+            "end_ms": 27000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22010374069214
+          },
+          {
+            "end_ms": 29000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200159087777138
+          },
+          {
+            "end_ms": 31000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22010707855225
+          },
+          {
+            "end_ms": 33000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.20015361905098
+          },
+          {
+            "end_ms": 35000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22233152389526
+          },
+          {
+            "end_ms": 37000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200153991580009
+          },
+          {
+            "end_ms": 39000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.21987342834473
+          },
+          {
+            "end_ms": 41000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200152695178986
+          },
+          {
+            "end_ms": 43000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22017097473145
+          },
+          {
+            "end_ms": 45000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200141340494156
+          },
+          {
+            "end_ms": 47000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22010326385498
+          },
+          {
+            "end_ms": 49000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200153604149818
+          },
+          {
+            "end_ms": 51000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22010374069214
+          },
+          {
+            "end_ms": 53000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200159013271332
+          },
+          {
+            "end_ms": 55000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22012233734131
+          },
+          {
+            "end_ms": 57000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.20015361905098
+          },
+          {
+            "end_ms": 59000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22010374069214
+          }
+        ],
+        "max_wait_ms": 0,
+        "max_zoom": 4.99962282180786,
+        "min_zoom": 0.200119629502296,
+        "wait_clock": "controllable_input_time",
+        "wait_frames": 0,
+        "wait_limit_ms": 500,
+        "wait_metrics_available": true,
+        "wait_target_ms": 250,
+        "wall_wait_max_ms": 0,
+        "within_wait_target": true
+      },
+      "input_continuity": {
+        "camera_stops": [],
+        "clock": "wall_microseconds",
+        "freeze_detected": false,
+        "freeze_episodes": 0,
+        "freeze_ms": 250.0,
+        "map_limited_samples": 0,
+        "max_camera_stop_ms": 0.0,
+        "max_player_stop_ms": 27.204,
+        "max_present_gap_ms": 21.594,
+        "max_stationary_pan_ms": 0.0,
+        "max_stationary_zoom_ms": 0.0,
+        "max_zoom_stop_ms": 18.727,
+        "modal_ms": 202.498,
+        "notice_detected": false,
+        "notice_ms": 50.0,
+        "pixel_coverage_verified": false,
+        "present_hitches": [],
+        "space_cases": {},
+        "stationary_pan_frames": 0,
+        "stationary_zoom_frames": 0,
+        "zoom_stops": []
+      },
+      "final_map_state": {
+        "cached_motion_select_peak_usec": 0,
+        "cached_motion_selects": 0,
+        "camera_wait_frames": 0,
+        "camera_wait_max_ms": 0,
+        "camera_wait_metrics_available": true,
+        "committed_catalog": 6,
+        "display_covered": true,
+        "display_qualified": true,
+        "screen_visible": true,
+        "summary_motion_adoptions": 1,
+        "summary_motion_commits": 0,
+        "summary_motion_refinements": 0
+      },
+      "stream_released": true,
+      "window_size": "(1920, 1080)",
+      "viewport_size": "(1920.0, 1080.0)",
+      "actual_vsync": 1,
+      "fail": 0,
+      "entry": {
+        "budget_frames": 0,
+        "camera_lag_frames": 0,
+        "composite_lag_frames": 0,
+        "first_visible_frame": 0,
+        "frames": 7089,
+        "hidden_frames": 0,
+        "input_events": 960,
+        "legacy_raster_visible_under_hlod_frames": 0,
+        "missing_frames": 0,
+        "performance_sample": false,
+        "raster_high_zoom_strategic_episodes": [],
+        "raster_high_zoom_strategic_frames": 0,
+        "raster_peak_fading_visible_tiles": 0,
+        "raster_peak_missing_visible_tiles": 0,
+        "raster_same_lod_fade_frames": 0,
+        "raster_visible_tile_missing_frames": 0,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0
+      },
+      "space_returns": 0
+    },
+    {
+      "kind": "pixels",
+      "tag": "d1-default-pixels",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "296CFBF680AB44ADF3EBBB1429EAD14AE012233DBC18EB046622E7A0CBCFC08E",
+      "default_route": true,
+      "exit_record_sha256": "151ff8bbf4c6bb860c09db97fadeb5d0937b13456ccda40146e160d2a5f618d9",
+      "log_sha256": "30812c77f21736130f89b4611752eca186a59f48267835595f12a2afd33ff93a",
+      "report_sha256": "286357b0ad9943e7e406a3d51fe1d5007c78becff4d0e51aab948818fea64ce7",
+      "package_path": "res://resources/maps/tokyo_playable/m20_motion_summary_v4_20261029/package.json",
+      "installed_motion_profile": true,
+      "explicit_package_override": false,
+      "combat_verified": true,
+      "camera_response": {
+        "completed_phases": [
+          {
+            "end_ms": 3000,
+            "reached": true,
+            "target": 5.0,
+            "zoom": 4.99956226348877
+          },
+          {
+            "end_ms": 5000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200453191995621
+          },
+          {
+            "end_ms": 7000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.21962404251099
+          },
+          {
+            "end_ms": 9000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200146645307541
+          },
+          {
+            "end_ms": 11000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22015380859375
+          },
+          {
+            "end_ms": 13000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200165018439293
+          },
+          {
+            "end_ms": 15000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22017860412598
+          },
+          {
+            "end_ms": 17000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200213477015495
+          },
+          {
+            "end_ms": 19000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22020244598389
+          },
+          {
+            "end_ms": 21000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200163498520851
+          },
+          {
+            "end_ms": 23000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.22021007537842
+          },
+          {
+            "end_ms": 25000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200161218643188
+          },
+          {
+            "end_ms": 27000,
+            "reached": true,
+            "target": 4.22275534907052,
+            "zoom": 4.21993780136108
+          },
+          {
+            "end_ms": 29000,
+            "reached": true,
+            "target": 0.2,
+            "zoom": 0.200169563293457
+          }
+        ],
+        "max_wait_ms": 0,
+        "max_zoom": 4.99959373474121,
+        "min_zoom": 0.200132176280022,
+        "wait_clock": "controllable_input_time",
+        "wait_frames": 0,
+        "wait_limit_ms": 500,
+        "wait_metrics_available": true,
+        "wait_target_ms": 250,
+        "wall_wait_max_ms": 0,
+        "within_wait_target": true
+      },
+      "final_map_state": {
+        "cached_motion_select_peak_usec": 0,
+        "cached_motion_selects": 0,
+        "camera_wait_frames": 0,
+        "camera_wait_max_ms": 0,
+        "camera_wait_metrics_available": true,
+        "committed_catalog": 6,
+        "display_covered": true,
+        "display_qualified": true,
+        "screen_visible": true,
+        "summary_motion_adoptions": 1,
+        "summary_motion_commits": 0,
+        "summary_motion_refinements": 0
+      },
+      "stream_released": true,
+      "window_size": "(1920, 1080)",
+      "viewport_size": "(1920.0, 1080.0)",
+      "actual_vsync": 1,
+      "fail": 0,
+      "entry": {
+        "budget_frames": 0,
+        "camera_lag_frames": 0,
+        "composite_lag_frames": 0,
+        "first_visible_frame": 0,
+        "frames": 2425,
+        "hidden_frames": 0,
+        "input_events": 480,
+        "legacy_raster_visible_under_hlod_frames": 0,
+        "missing_frames": 0,
+        "performance_sample": false,
+        "raster_high_zoom_strategic_episodes": [],
+        "raster_high_zoom_strategic_frames": 0,
+        "raster_peak_fading_visible_tiles": 0,
+        "raster_peak_missing_visible_tiles": 0,
+        "raster_same_lod_fade_frames": 0,
+        "raster_visible_tile_missing_frames": 0,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0
+      },
+      "space_returns": 0
+    },
+    {
+      "kind": "all",
+      "tag": "d1-all-complete",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "296CFBF680AB44ADF3EBBB1429EAD14AE012233DBC18EB046622E7A0CBCFC08E",
+      "default_route": true,
+      "exit_record_sha256": "dbcd2bc7481066e17eefe00768ac8a8360b5c9712f12b617ccff7aa18bd61f10",
+      "log_sha256": "5b2c65a6615e1468c4711d0bd18e6d9d7a4afa6cfc895a716bc117e990b8a28a"
+    }
+  ]
+}

@@ -7,12 +7,12 @@ extends RefCounted
 ## 契约：
 ##   1. PURSUE_UNIT verb：追会动的单位、【无抵达态】、目标失效自动释放、按间隔节流重取
 ##   2. 归巢已废除：AceSquad 状态机里不存在 ANCHOR_HOLD
-##   3. 角色真实化：KNIGHT×2 + SNIPER×2；SNIPER 吃 BVR 站位带（4~6km），KNIGHT 不吃
+##   3. Wraith 角色真实化：KNIGHT×4 + SNIPER×2；SNIPER 吃 BVR 站位带（4~6km），KNIGHT 不吃
 ##   4. 两个死 meta 已清除：combat_specialty（只写不读）/ f47_role（只读不写）
 ##   5. 热诱弹即命数：王牌 4 枚 × 每次 1 枚，且不自动装填
 ##   6. 执行失误：tier 标记同时开瞄准误差通路 + 写王牌枪法 0.85
 ##   7. 减速迟滞：进入治理区掷一次骰、迟滞期间不压速、离开治理区解除锁存
-## 运行：godot --headless --path . -- --bench=boss_hunter（或 --bench=all）
+## 运行：bench\run.cmd boss_hunter 1 180 Shadow Headless（或 all）
 
 var _pass := 0
 var _fail := 0
@@ -263,9 +263,10 @@ func _test_ace_roles() -> void:
 	print("── C. KNIGHT / SNIPER 角色 ──")
 	var sq := F47AceSquad.new()
 
-	# 角色分配规则：前 2 架 KNIGHT，后 2 架 SNIPER（wraith spec §2.1）
-	for i in range(4):
-		var expect: int = AceSquad.AceRole.KNIGHT if i < 2 else AceSquad.AceRole.SNIPER
+	# 角色分配规则：前 4 架 KNIGHT，后 2 架 SNIPER（wraith spec §2.1）
+	for i in range(sq.squad_size):
+		var expect: int = AceSquad.AceRole.KNIGHT if i < 4 else AceSquad.AceRole.SNIPER
+		_check("Wraith#%d 正式角色分配" % i, sq._member_role(i) == expect, "4 KNIGHT + 2 SNIPER")
 		var ac := Aircraft.new()
 		var ai := AIController.new()
 		ai.aircraft = ac
@@ -427,8 +428,8 @@ func _test_wraith_tactics_pure() -> void:
 	_check("轴线退化安全", is_equal_approx(W.axis_heading(Vector2.ZERO, Vector2.ZERO), 0.0), "同点→0")
 
 	# 包围几何：三翼全部 ≥60° 离轴，且真的分在两侧（§3.2-3 / §3.2 的"为什么是 60°"）
-	var brgs: Array = W.wing_bearings(0.0, 3)
-	_check("三翼各得一个方位", brgs.size() == 3, "%d 个" % brgs.size())
+	var brgs: Array = W.wing_bearings(0.0, 5)
+	_check("五架包夹机各得一个方位", brgs.size() == 5, "%d 个" % brgs.size())
 	var all_ok := true
 	var has_left := false
 	var has_right := false
@@ -500,8 +501,8 @@ func _test_wraith_phase_machine() -> void:
 	sq._player = player
 	sq.combat_phase_active = true
 	var mem: Array[Aircraft] = []
-	for i in range(4):
-		var m := _role_ac(AceSquad.AceRole.KNIGHT if i < 2 else AceSquad.AceRole.SNIPER)
+	for i in range(sq.squad_size):
+		var m := _role_ac(AceSquad.AceRole.KNIGHT if i < 4 else AceSquad.AceRole.SNIPER)
 		m.global_position = Vector2(0, 3000)
 		m.altitude = 2000.0
 		mem.append(m)
@@ -525,7 +526,7 @@ func _test_wraith_phase_machine() -> void:
 	for m in mem:
 		if m != t._bait and is_finite(m.surround_bearing_rad):
 			wings_with_bearing += 1
-	_check("三翼都拿到包围方位", wings_with_bearing == 3, "%d/3" % wings_with_bearing)
+	_check("五架包夹机都拿到包围方位", wings_with_bearing == 5, "%d/5" % wings_with_bearing)
 
 	# 玩家咬住 BAIT 满 4s → 收网转 PRESS
 	player.global_position = t._bait.global_position + Vector2(0, 800)   # 在诱饵正南

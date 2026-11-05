@@ -16,14 +16,23 @@ static func run(path: String, expected_sha: String, output: String) -> int:
 		if refinement_depth not in [0,1,2,3,4] or (refinement_depth>0 and not binding.get("native_only",false)): return 1
 		if refinement_depth>0:
 			refinement=preload("res://scripts/tests/tokyo_native_refinement_probe.gd").new()
+			if binding.has("refinement_variants"):
+				refinement=preload("res://scripts/tests/tokyo_refinement_alternatives_probe.gd").new()
+				refinement.variants=binding.refinement_variants
 			refinement.branching=int(binding.get("refinement_branching",4))
 			refinement.diagnostic_cap=int(binding.get("refinement_cap",16))
+			refinement.split_balance=String(binding.get("refinement_balance","median"))
+			refinement.split_aspect=float(binding.get("refinement_aspect",1.0))
+			if binding.get("refinement_no_game_sources",false):
+				refinement.current_roots=true
 		if binding.has("native") and binding.native!=native_binding:
 			if not binding.native is Dictionary: return 1
 			native=preload("res://scripts/rendering/tokyo_hlod_native.gd").new()
 			if not native.read(binding.native): return 1
 			native_binding=binding.native
 		if binding.get("native_only",false) and (not binding.has("native") or native==null): return 1
+		if refinement!=null and binding.get("refinement_no_game_sources",false):
+			refinement.eligible_leaf=preload("res://scripts/tests/build_tokyo_lossless_leaf_partitions.gd").refinable.bind(native,String(binding.get("native_configuration","lod5_full")))
 		var started := Time.get_ticks_usec()
 		var catalog := Contract.read(binding.path,binding.sha256)
 		if catalog.is_empty():

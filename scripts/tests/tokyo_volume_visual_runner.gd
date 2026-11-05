@@ -15,7 +15,7 @@ func _ready() -> void:
 	add_child(features)
 	features.setup(camera, Rect2(-16000, -16000, 32000, 32000))
 	if not is_instance_valid(features._tokyo_volume):
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	_capture_sequence.call_deferred()
 
@@ -40,4 +40,4 @@ func _capture_sequence() -> void:
 	var file := FileAccess.open("res://bench/results/tokyo_lod_r4_manifest.json", FileAccess.WRITE)
 	file.store_string(JSON.stringify(records, "\t"))
 	file.close()
-	get_tree().quit(1 if _fail else 0)
+	AudioManager.request_quit(1 if _fail else 0)

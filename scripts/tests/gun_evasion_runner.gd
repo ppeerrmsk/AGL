@@ -6,4 +6,4 @@ func _ready() -> void:
 func _run() -> void:
 	var test: RefCounted = load("res://scripts/tests/gun_evasion_lifecycle_case.gd").new()
 	var failures: int = await test.run(self, DisplayServer.get_name() != "headless")
-	get_tree().quit(0 if failures == 0 else 1)
+	AudioManager.request_quit(0 if failures == 0 else 1)

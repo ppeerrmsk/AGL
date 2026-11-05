@@ -1,5 +1,8 @@
 class_name NavalPlacement
 extends RefCounted
+const Water := preload("res://scripts/naval/naval_water.gd")
+## 覆盖当前最大航母外接圆（86px）及8px余量；圆弧采样再加半步长。
+const HULL_CLEARANCE_PX := 94.0
 
 ## 舰队摆位的共用水域校验（CSG BOSS 舰队 / 战区海上任务共用）
 ##
@@ -59,16 +62,17 @@ static func score(center: Vector2, ring_radius: float, offsets: Array,
 	var land: int = 0
 	if ring_radius <= 1.0:
 		for p in fleet_positions(center, 0.0, offsets, base_heading_rad):
-			if MapGeography.is_on_land(p):
+			if not Water.disk_clear(p, HULL_CLEARANCE_PX):
 				land += 1
 		return land
-	if MapGeography.is_on_land(center):
+	if not Water.disk_clear(center, 0.0):
 		land += 1
 	for r in ship_orbit_radii(ring_radius, offsets):
-		var n: int = clampi(ceili(TAU * r / ORBIT_SAMPLE_STEP_PX), 8, 256)
+		var n: int = maxi(ceili(TAU * r / ORBIT_SAMPLE_STEP_PX), 8)
 		for k in n:
 			var a: float = TAU * float(k) / float(n)
-			if MapGeography.is_on_land(center + Vector2(cos(a), sin(a)) * r):
+			if not Water.disk_clear(center + Vector2(cos(a), sin(a)) * r,
+					HULL_CLEARANCE_PX + ORBIT_SAMPLE_STEP_PX * 0.5):
 				land += 1
 	return land
 

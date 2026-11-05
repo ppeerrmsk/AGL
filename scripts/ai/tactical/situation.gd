@@ -119,6 +119,7 @@ var tgt_deceleration: float = 80.0
 var radar_half_angle_deg: float = 30.0   ## 雷达扇形半角（度），决定 crank 角度上限
 var missile_max_speed_mps: float = 0.0   ## 当前主导弹最大速度；发射前追踪点与武器层共用前置解
 var missile_support_active: bool = false ## 已出弹后的短时 crank 支援；锁定本身不触发预发射 crank
+var missile_launch_bank_limit_deg: float = -1.0 ## 几何就绪时收坡建议；不缓存目标引用
 
 ## 属性感知狗斗画像（spec engagement-discipline §2.3）。
 const DOGFIGHT_BALANCED := 0
@@ -331,6 +332,8 @@ static func from_aircraft(ac) -> Situation:
 		if "radar_targets" in ac:
 			s.target_lock_progress = ac.radar_targets.get(tgt, 0.0)
 			s.target_locked = s.target_lock_progress >= s.lock_time_threshold
+		if s.is_tactical_preference_user and s.target_locked and not s.tgt_is_surface:
+			s.missile_launch_bank_limit_deg = AircraftWeapons.prelaunch_bank_limit_deg(ac, tgt)
 		# 地面机炮火力警觉（spec aa-fire-awareness §2.3/§3.4）：仅面目标才算
 		if s.tgt_is_surface:
 			# 目标对空火力半径：GroundUnit 读其机炮 live 射程；舰船/挂点 = CIWS 对空扫射 2000m

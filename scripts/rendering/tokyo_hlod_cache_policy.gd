@@ -15,7 +15,16 @@ static func pool_bytes(dedicated_mib: int, available_ram_mib: int) -> int:
 	elif available_ram_mib<8192: amount=mini(amount,768)
 	return amount*MIB
 
+static func fixed_pool_bytes(value: String) -> int:
+	# 用户授权的适度扩池；不能把拼写错误或历史自动档位解释成更大的预算。
+	return int(value)*MIB if value in ["96","192","384"] else 96*MIB
+
+
 static func candidate_limit() -> int:
+	if OS.has_environment("AGL_TOKYO_CACHE_MIB"):
+		return fixed_pool_bytes(OS.get_environment("AGL_TOKYO_CACHE_MIB"))
+	if preload("res://scripts/rendering/tokyo_installed_map.gd").default_motion_profile():
+		return fixed_pool_bytes(preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_CACHE_MIB"))
 	# 只接受验证工具提供的实测容量，正式自动识别/默认启用须另过验收。
 	if OS.get_environment("AGL_TOKYO_TIERED_CACHE")!="1": return 96*MIB
 	var measured := OS.get_environment("AGL_TOKYO_DEDICATED_VRAM_MIB")

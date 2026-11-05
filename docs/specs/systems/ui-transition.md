@@ -3,7 +3,7 @@ id: ui-transition
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 25
+spec_version: 26
 owner: noelu
 depends_on: [command-wheel, survivor-loop, zone-reward-docking, radio-chatter, event-system, ui-design-guidelines]
 reconstruction_complete: true
@@ -14,7 +14,7 @@ reconstruction_complete: true
 > 界面不再"啪"地跳出来，BOSS 也不再默默飘进战场。升级时世界急刹、卡片错开弹入；
 > 所有 BOSS 生成后都立即进入同一表演导演：先用“系统遭入侵”横幅宣告身份，
 > 再把镜头切到 BOSS、播放登场无线电、回到玩家。
-> Wraith 在这个统一骨架上追加四机列队、交汇与尾迹分镜；航母和 Mother Goose 使用简洁特写。
+> Wraith 在这个统一骨架上追加六机列队、交汇与尾迹分镜；航母和 Mother Goose 使用简洁特写。
 
 ## 1. 设计意图（Why）
 
@@ -58,7 +58,7 @@ reconstruction_complete: true
 5. 舞台恢复、镜头回玩家；
 6. 演出释放后，`BossEncounterEvent` **立即进入 ENGAGED**。
 
-这是一套共同系统，不要求相同分镜。Wraith 保留专属四机飞行表演；CSG 只拍旗舰航母；
+这是一套共同系统，不要求相同分镜。Wraith 保留专属六机飞行表演；CSG 只拍旗舰航母；
 Mother Goose 只拍母机主体。横幅与后续镜头合计仍受 `CINE_MAX_SEC=7.0` 限制；不得因为新增
 前导横幅放宽不可跳过演出的预算。若序列意外缺失，表现层退化为旧警告+无线电，玩法层仍立即
 ENGAGED，绝不滞留 PRE_STAGE。
@@ -242,13 +242,13 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
 
 ### 2.8 Wraith 登场演出序列 `wraith_squadron_arrival`（分镜定稿）
 
-总时长 **6.68s**（硬上限 7.0s；前 1.50s 为逐窗身份横幅，末步为 5.88 起的镜头归位 0.80）。演员 = 4 架 F-47（`WRAITH-01..04`）。
+总时长 **6.68s**（硬上限 7.0s；前 1.50s 为逐窗身份横幅，末步为 5.88 起的镜头归位 0.80）。演员 = 6 架 F-47（`WRAITH-01..06`）；YF-23 支援仅接战后生成。
 **三幕结构**（用户分镜，2026-07-20）：
 
 ```
 第一幕 平飞          第二幕 交汇·隐身（v2）        第三幕 尾迹余韵
-  ✈ ✈ ✈ ✈           \  |  /                     \  |  /
-  梯队斜列            长机居中、僚机向它收拢         ＼ ｜ ／
+  ✈ ✈ / ✈ ✈ / ✈ ✈           \  |  /                     \  |  /
+  三对双梯队            长机居中、僚机向它收拢         ＼ ｜ ／
   两句对话            【贴上长机的瞬间各自隐身】      × 交汇点
                      未贴上者窗口末强制淡出兜底     ／ ｜ ＼
                      「找点乐子」                 飞机没了，线还在
@@ -269,9 +269,9 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
 | 11 | 1.83 | `radio` | 第 1 句「目标发现，准备交战」 | `WRAITH-01`，`dur=1.35` | — | — |
 | 12 | 3.23 | `radio` | 第 2 句「收到」 | `WRAITH-02`，`dur=0.65` | — | — |
 | 13 | 3.90 | `radio` | 第 3 句「让我们来找点乐子吧」 | `WRAITH-01`，`dur=1.30` | — | — |
-| 14 | 3.90 | `actor` | `converge` 四线收拢至交汇点 | 见 §2.10 | 1.55 | — |
+| 14 | 3.90 | `actor` | `converge` 六线收拢至交汇点 | 见 §2.10 | 1.55 | — |
 | 15 | 3.90 | `actor` | `cloak_on_meet` 逐机交汇淡出 | `radius=100, fade=0.35` | 1.98 | — |
-| 16 | 4.33 | `camera` | `zoom` 推近交汇点 | ×1.0 → ×1.30 | 1.10 | `cubic_in_out` |
+| 16 | 4.33 | `camera` | `zoom` 推近交汇点 | ×0.85 → ×1.15 | 1.10 | `cubic_in_out` |
 | 17 | 5.88 | `actor` | `scatter` 背向玩家扇面散开 | `dist=2600, fan_deg=135` | 瞬时 | — |
 | 18 | 5.88 | `actor` | `trail_fade` 尾迹淡出 | a → 0 | 0.65 | `cubic_in` |
 | 19 | 5.88 | `stage` | `restore` 世界淡回 | 见 §2.7 | 0.80 | `cubic_in_out` |
@@ -279,15 +279,15 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
 | 21 | 6.68 | `time` | `hard_pause(false)` | — | 瞬时 | — |
 | 22 | 6.68 | `actor` | `release` + `trail_restore` | — | 瞬时 | — |
 
-> **为什么"散开→合并成阵型"不占演出时长**：第 17 步开始时四机已完成交汇淡出，
-> 散开与重组阵型**没有观众**。故这两拍放在解暂停之后，由既有编队 AI 在隐身状态下自然完成 ——
-> 玩家解除暂停时面对的是"四架看不见的敌机正在散开包抄"，正是分镜想要的压迫感，且**零时长成本**。
-> 这是把 7 秒预算守住的关键。
+第 17 步开始时六机已完成交汇淡出；背向玩家散开与世界淡回共用末尾 0.80s。
+6.68s 的 release 解除演出隐身、清理演员所有权并立即进入接战，战斗光学隐形从新的 60s 冷却开始。
+整个飞行表演期间隐藏演员世界状态牌，收尾恢复；不改变战斗中的读数、可见性或恐惧遮蔽。
+交汇点在实际飞行方向 `-inbound` 前方，避免让六机在 1.55s 窗口内先掉头。
 
 > **隐身是演出专属视觉**（用户裁定 2026-07-20，推翻 v3~v9 的"真隐身接续战斗"方案）：
 > `cloak_on_meet` 只写 `_cloak_alpha`，**绝不碰** AceSquad 的隐身状态机 ——
 > `_cloak_enter()` 会置 `_cloak_in_state`，而 PRE_STAGE 下状态机休眠、`_cloak_remaining`
-> 永不倒数，实测四机**永久隐身**、玩家满地图找不到 BOSS。
+> 永不倒数，实测六机**永久隐身**、玩家满地图找不到 BOSS。
 > `release` 时三字段一起复位（`_cloak_alpha` / `is_cloaked` / `suppress_flares`），
 > 剧情结束即解除；真隐身仍由战斗中的严格 60s CD 循环自行触发。
 
@@ -340,37 +340,37 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
 | `ingress_dist` | **520 px** | 起点 = `anchor + inbound × 520 + offset`。= 1600 km/h × 2.4s 的可达距离（533px） |
 | 可见时长 | `2.4 s` | 从 `at 1.50`（进场）到 `at 3.90`（收拢）之间 |
 | `inbound` | 玩家→锚点的单位向量 | **从玩家机头前方飞来**，守"事件刷在沿途"约定 |
-| 编队 | **右梯队（echelon）** | 偏移 `[(0,0), (-70,85), (-140,170), (-210,255)]`，沿 `inbound` 旋转。分镜第一格的斜列 |
-| 逐机淡入间隔 | `0.35 s` | 复用 Poltergeist 的 `FADING` 模式 |
+| 编队 | **六机双梯队，三对展开** | 偏移 `[(0,-70), (0,70), (110,-140), (110,140), (220,-210), (220,210)]`，沿 `inbound` 旋转；最小机间距约 130px，大于交汇触发半径 100px |
+| 逐机淡入间隔 | `0.21 s` | 复用 Poltergeist 的 `FADING` 模式 |
 | 淡入时长 | `0.60 s` | 与 Poltergeist `FADE_IN_DURATION` 一致 |
 | 平飞速度 | **1600 km/h** | = F-47 `cruise_speed`。520px / 2.4s 的可达距离为 533px |
-| 高度分层 | 每机差 `120 m` | 交汇时四机不同高度 → 图标缩放不同，既避免糊成一团，也让交汇物理上说得通 |
+| 高度分层 | 每机差 `120 m` | 交汇时六机不同高度 → 图标缩放不同，既避免糊成一团，也让交汇物理上说得通 |
 | 镜头 zoom | **0.85** | 视野半宽 = 1920/2/0.85 ≈ 1129px，容得下 520px 进场段 + 编队展开 |
 
 ### 2.10 第二幕：交汇与散开（`converge` / `scatter`）
 
-**交汇点** `CP = anchor + inbound × 250px`（锚点前方一点，让四条线在镜头中央交叉）。
-250px 不是随手取的：它与 `CONVERGE_SEC = 1.55` 一起，决定了四机所需速度落在 **1161 ~ 2443 km/h**，全部在 F-47 的 `max_speed = 2800` 包线内。
+**交汇点** `CP = anchor - inbound × 250px`（锚点前方一点，让六条线在镜头中央交叉）。
+250px 不是随手取的：它与 `CONVERGE_SEC = 1.55` 一起，决定了六机机位的直线反解速度约为 **1206 ~ 2391 km/h**（实际仍由当前位置反解），全部在 F-47 的 `max_speed = 2800` 包线内。
 
 | 字段 | 值 | 说明 |
 |---|---|---|
 | `CONVERGE_SEC` | `1.55` | 从梯队收拢到抵达 CP 的时长 |
-| 目标点 | 四机**同一个** `CP` | 靠 §2.9 的高度分层避免同高度重叠 |
-| 到点半径 | **`80px`**（覆写现状 `300px`） | 交汇必须"准"，300px 下四条线交不成一个点 |
-| 抵达同步 | 各机速度按 `dist_i / CONVERGE_SEC` 反解 | 梯队里靠后的机要飞得快，保证**同时**抵达 —— 这是"四线同时汇于一点"的关键 |
+| 目标点 | 六机**同一个** `CP` | 靠 §2.9 的高度分层避免同高度重叠 |
+| 到点半径 | **`80px`**（覆写现状 `300px`） | 交汇必须"准"，300px 下六条线交不成一个点 |
+| 抵达同步 | 各机速度按 `dist_i / CONVERGE_SEC` 反解 | 梯队里靠后的机要飞得快，保证**同时**抵达 —— 这是"六线同时汇于一点"的关键 |
 | **速度包线** | 全部机位所需速度 ≤ 机体 `max_speed` | 超出会被钳速 → 同时抵达失效 → 交汇退化成"依次穿过"。这是**设计错误**而非运行时容错，代码里留 warning，无头断言逐机位守门 |
-| `SCATTER_SEC` | 不限（解暂停后交由 AI） | 散开航向 = `CP` 出发的四向，间隔 `90°`，起始方位随机化避免每次一样 |
+| `SCATTER_SEC` | 世界淡回期间 0.80s，随后 release 并接战 | 六机在背向玩家的 135° 扇面内均匀散开，不向玩家甩；结束解除演出隐形 |
 | 散开距离 | `2600px` | 到点后指令释放，编队 AI 接管重组 |
 
 > ⚠ **到点半径必须可配**。现状 `_directive_follow_path_step` 把 `300.0` 硬编码在
 > 到点判定里。交汇镜头要求 `80px`，这是阶段 2 的必改项，不是优化项。
 
 > ⚠ **同步抵达要反解速度，不能给同一个速度**。梯队最后一架距 CP 比长机远约 1000px，
-> 同速会导致四条线先后到达、交汇变成"依次穿过"，分镜效果全失。
+> 同速会导致六条线先后到达、交汇变成"依次穿过"，分镜效果全失。
 
 ### 2.11 尾迹的演出覆写（`trail_boost`）
 
-分镜第三格「飞机没了、四条线还交汇在那儿」是整段演出的题眼，**全靠尾迹撑**。
+分镜第三格「飞机没了、六条线还交汇在那儿」是整段演出的题眼，**全靠尾迹撑**。
 现状尾迹撑不起来，演出期间需临时覆写（**仅 4 架演员**，退出时还原）：
 
 | 字段 | 常规值 | 演出值 | 理由 |
@@ -406,30 +406,28 @@ BOSS 演出期间把世界"清空"成一片空旷天空的参数。**不新建�
   "wraith_squadron_arrival": {
     "max_sec": 7.0,
     "steps": [
-      {"at": 0.00, "ch": "time",   "op": "pause", "to": 1},
-      {"at": 0.00, "ch": "overlay", "op": "dim", "to": 0.22, "dur": 0.12, "ease": "cubic_out"},
-      {"at": 0.00, "ch": "banner", "op": "reveal", "dur": 1.05, "ease": "back_out"},
-      {"at": 0.05, "ch": "audio", "op": "boss_bgm", "fade": 2.0},
-      {"at": 1.30, "ch": "banner", "op": "dismiss", "dur": 0.20, "ease": "cubic_in"},
-      {"at": 1.30, "ch": "overlay", "op": "dim", "to": 0.0, "dur": 0.20, "ease": "cubic_in"},
-      {"at": 1.30, "ch": "stage", "op": "clear", "dur": 0.45, "ease": "cubic_out"},
-      {"at": 1.50, "ch": "actor", "op": "echelon_ingress", "speed": 1600,
-       "offsets": [[0,0],[-70,85],[-140,170],[-210,255]], "ingress_dist": 520,
-       "stagger": 0.35, "fade": 0.60, "alt_step": 120, "dur": 1.65},
-      {"at": 1.50, "ch": "camera", "op": "cut_to", "zoom": 0.85, "follow": true, "actor": 0},
-      {"at": 1.50, "ch": "actor", "op": "trail_boost"},
-      {"at": 1.83, "ch": "radio", "op": "line", "key": "RADIO_BOSS_WRAITH_SPAWN_1", "actor": 0, "dur": 1.35},
-      {"at": 3.23, "ch": "radio", "op": "line", "key": "RADIO_BOSS_WRAITH_SPAWN_2", "actor": 1, "dur": 0.65},
-      {"at": 3.90, "ch": "radio", "op": "line", "key": "RADIO_BOSS_WRAITH_SPAWN_3", "actor": 0, "dur": 1.30},
-      {"at": 3.90, "ch": "actor", "op": "converge", "dur": 1.55, "arrive_radius": 80},
-      {"at": 3.90, "ch": "actor", "op": "cloak_on_meet", "radius": 100, "fade": 0.35, "dur": 1.98},
-      {"at": 4.33, "ch": "camera", "op": "zoom", "from": 1.0, "to": 1.30, "dur": 1.10, "ease": "cubic_in_out"},
-      {"at": 5.88, "ch": "actor", "op": "scatter", "dist": 2600, "fan_deg": 135},
-      {"at": 5.88, "ch": "actor", "op": "trail_fade", "dur": 0.65, "ease": "cubic_in"},
-      {"at": 5.88, "ch": "stage", "op": "restore", "dur": 0.80, "ease": "cubic_in_out"},
-      {"at": 5.88, "ch": "camera", "op": "return_to_player", "dur": 0.80, "ease": "cubic_in_out"},
-      {"at": 6.68, "ch": "time", "op": "pause", "to": 0},
-      {"at": 6.68, "ch": "actor", "op": "release"}
+      {"at": 0.0,"ch": "time","op": "pause","to": 1},
+      {"at": 0.0,"ch": "overlay","op": "dim","to": 0.22,"dur": 0.12,"ease": "cubic_out"},
+      {"at": 0.0,"ch": "banner","op": "reveal","dur": 1.05,"ease": "back_out"},
+      {"at": 0.05,"ch": "audio","op": "boss_bgm","fade": 2.0},
+      {"at": 1.3,"ch": "banner","op": "dismiss","dur": 0.2,"ease": "cubic_in"},
+      {"at": 1.3,"ch": "overlay","op": "dim","to": 0.0,"dur": 0.2,"ease": "cubic_in"},
+      {"at": 1.3,"ch": "stage","op": "clear","dur": 0.45,"ease": "cubic_out"},
+      {"at": 1.5,"ch": "actor","op": "echelon_ingress","speed": 1600,"alt_step": 120,"offsets": [[0,-70],[0,70],[110,-140],[110,140],[220,-210],[220,210]],"ingress_dist": 520,"stagger": 0.21,"fade": 0.6,"dur": 1.65},
+      {"at": 1.5,"ch": "camera","op": "cut_to","zoom": 0.85,"follow": true,"actor": 0},
+      {"at": 1.5,"ch": "actor","op": "trail_boost"},
+      {"at": 1.83,"ch": "radio","op": "line","key": "RADIO_BOSS_WRAITH_SPAWN_1","actor": 0,"dur": 1.35},
+      {"at": 3.23,"ch": "radio","op": "line","key": "RADIO_BOSS_WRAITH_SPAWN_2","actor": 1,"dur": 0.65},
+      {"at": 3.9,"ch": "radio","op": "line","key": "RADIO_BOSS_WRAITH_SPAWN_3","actor": 0,"dur": 1.3},
+      {"at": 3.9,"ch": "actor","op": "converge","dur": 1.55,"arrive_radius": 80},
+      {"at": 4.33,"ch": "camera","op": "zoom","from": 0.85,"to": 1.15,"dur": 1.1,"ease": "cubic_in_out"},
+      {"at": 3.9,"ch": "actor","op": "cloak_on_meet","radius": 100,"fade": 0.35,"dur": 1.98},
+      {"at": 5.88,"ch": "actor","op": "scatter","dist": 2600,"fan_deg": 135},
+      {"at": 5.88,"ch": "actor","op": "trail_fade","dur": 0.65,"ease": "cubic_in"},
+      {"at": 5.88,"ch": "stage","op": "restore","dur": 0.8,"ease": "cubic_in_out"},
+      {"at": 5.88,"ch": "camera","op": "return_to_player","dur": 0.8,"ease": "cubic_in_out"},
+      {"at": 6.68,"ch": "time","op": "pause","to": 0},
+      {"at": 6.68,"ch": "actor","op": "release"}
     ]
   }
 }
@@ -507,7 +505,7 @@ play_cinematic(name, ctx):
 
 理由：`GameEvent.set_directive` 已经把 `owner_event` 设成弱引用，且事件结束时
 `clear_all_directives()` 兜底。若导演另造一套所有权，一旦某条路径漏了清理，
-**四架飞机会永远停在免战脚本模式**——屏幕上看着在飞但不打仗，不报错、不崩溃、极难查。
+**演员飞机会永远停在免战脚本模式**——屏幕上看着在飞但不打仗，不报错、不崩溃、极难查。
 这比时间缩放泄漏更危险。一套所有权模型，不造第二套。
 
 `actor.release` step 调 `ctx.owner.clear_all_directives()`，与 `BossEncounterEvent`
@@ -733,14 +731,14 @@ func get_transition_elements() -> Array[Control]
 - [ ] 升级：世界急刹 ~0.15s → 镜头微推 → 标题+3 卡错开弹入，总时长约 0.44s
 - [ ] 选卡后升级效果**当帧**生效（EventLogger 确认），面板齐退，时间弹回 1.0
 - [ ] **鼠标回归**：选卡后立刻按住拖拽，无卡死的 `is_dragging`（原代码专门修过：暂停吞 release）
-- [ ] Wraith 三幕：梯队平飞+两句对话 → 四线收拢交汇+「让我们来找点乐子吧」→ 交汇瞬间逐机淡出 → 尾迹余韵 → 世界淡回
+- [ ] Wraith 三幕：梯队平飞+两句对话 → 六线收拢交汇+「让我们来找点乐子吧」→ 交汇瞬间逐机淡出 → 尾迹余韵 → 世界淡回
 - [ ] **交汇成点**：四条尾迹在 CP 汇于一点（非依次穿过）—— 验证速度反解生效、到点半径 80px 生效
-- [ ] **题眼镜头**：机体消失后尾迹仍在，四线交叉于一点后才淡出（验证尾迹未继承机体 alpha）
+- [ ] **题眼镜头**：机体消失后尾迹仍在，六线交叉于一点后才淡出（验证尾迹未继承机体 alpha）
 - [ ] 尾迹够长：0.50 广角下单条尾迹约占屏宽 40%+（验证 `max_points 240` 覆写生效）
 - [ ] `release` 后尾迹参数还原为 `80 / 8.0`（**不得泄漏给常规战斗**，这是性能红线）
 - [ ] 隐身边界：`release` 清除演出专属淡出，战斗真隐身只由严格 60s CD 循环触发
 - [ ] 演出期间玩家绝对安全（世界冻结），演出结束后玩家机与敌人状态与演出前一致
-- [ ] 演出中飞行是**真物理**：四机有真实坡度、转弯半径、速度，与常规飞行无视觉差异
+- [ ] 演出中飞行是**真物理**：六机有真实坡度、转弯半径、速度，与常规飞行无视觉差异
 - [ ] 无线电条在演出期间**不被压暗**（DIM_LAYER=16 生效）
 - [ ] 台词三句按序出现，不与 ambient 喊话叠字
 - [ ] 命令轮盘 0.3× 与升级急刹叠加后，退出时 `Engine.time_scale` 干净回 1.0
@@ -779,7 +777,7 @@ func get_transition_elements() -> Array[Control]
 - [x] `camera` 通道扩展 —— `cut_to` / `return_to_player` / `cine_target`
 - [x] **`FOLLOW_PATH` 到点半径改为可配**（现 `300.0` 硬编码，交汇需 `80`）
 - [x] `echelon_ingress` op —— 梯队偏移 + 高度分层 + 逐机 stagger 淡入 + `follow_path` 下发
-- [x] `converge` op —— 四机同点 + **按距离反解各机速度保证同时抵达**（同速会毁掉交汇效果）
+- [x] `converge` op —— 六机同点 + **按距离反解各机速度保证同时抵达**（同速会毁掉交汇效果）
 - [x] `cloak_on_meet` op —— 每架抵达交汇半径时演出专属淡出，窗口末强制兜底；不写真隐身状态机
 - [x] `scatter` op —— 背向玩家的 135° 扇面散开，避免贴脸误触 ENGAGED
 - [x] `trail_boost` / `trail_fade` / `trail_restore` op —— `max_points 80→240`、`width 8→14`，**退出必还原**
@@ -842,6 +840,8 @@ func get_transition_elements() -> Array[Control]
 | reference 索引行 | `script-index.md` / `code-index.md` 的 presentation 段 |
 
 ## 8. 变更记录
+
+- 2026-10-28：用户要求六机登场同步修订。采用三对双梯队、0.21s 逐机淡入，1.65s 内六架全部可见；镜头从 0.85 平滑推到 1.15；六机交汇/散开/释放，总长保持 6.68s。
 
 | 日期 | spec_version | 改动 |
 |---|---|---|

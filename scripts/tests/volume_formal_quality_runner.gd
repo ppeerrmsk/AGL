@@ -119,7 +119,7 @@ func _run() -> void:
 	_check(int(probe.get("_counts").get("fade_f14", 0)) == 0, "released crash leaves no rendered instance")
 	print("[Formal quality] pass=%d fail=%d projection_error_px=%.5f %s" % [
 		_pass, _fail, projection_error, _overlay.summary()])
-	get_tree().quit(0 if _fail == 0 else 1)
+	AudioManager.request_quit(0 if _fail == 0 else 1)
 
 
 func _volume_point(actor: Aircraft, probe: Node3D) -> Vector3:

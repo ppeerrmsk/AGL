@@ -14,73 +14,73 @@ func _capture_sequence() -> void:
 	if OS.get_environment("AGL_TOKYO_STATIC_SHADOW") != "":
 		var script: Script = load("res://scripts/tests/tokyo_static_shadow_review.gd")
 		if script == null or not script.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_fail += await script.new().run(self, OS.get_environment("AGL_TOKYO_STATIC_SHADOW"), OS.get_environment("AGL_TOKYO_STATIC_SHADOW_OUT"))
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	if OS.get_environment("AGL_TOKYO_FAR_CLUSTER_REVIEW") != "":
 		var script: Script = load("res://scripts/tests/tokyo_far_cluster_review.gd")
 		if script == null or not script.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_fail += await script.new().run(self, OS.get_environment("AGL_TOKYO_FAR_CLUSTER_REVIEW"), OS.get_environment("AGL_TOKYO_FAR_CLUSTER_REVIEW_OUT"))
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	if OS.get_environment("AGL_TOKYO_GROUND_MERGE_REVIEW") != "":
 		var ground: Script = load("res://scripts/tests/tokyo_ground_merge_review.gd")
 		if ground == null or not ground.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_fail += await ground.new().run(self, OS.get_environment("AGL_TOKYO_GROUND_MERGE_REVIEW"))
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	if OS.get_environment("AGL_TOKYO_CELLS_VARIANT") in ["yokohama_cluster_hierarchy", "yokohama_cluster_stable"]:
 		var runtime_script: Script = load("res://scripts/tests/tokyo_cluster_runtime_review.gd")
 		if runtime_script == null or not runtime_script.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		var expected := "R46" if OS.get_environment("AGL_TOKYO_CELLS_VARIANT") == "yokohama_cluster_stable" else "R45"
 		_fail += await runtime_script.new().run(self, expected)
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	if OS.get_environment("AGL_TOKYO_CLUSTER_REVIEW") == "1":
 		var cluster_script: Script = load("res://scripts/tests/tokyo_cluster_review.gd")
 		if cluster_script == null or not cluster_script.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_fail += await cluster_script.new().run(self)
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	if OS.get_environment("AGL_TOKYO_CELLS_VARIANT") == "yokohama_joined_lod_hierarchy":
 		var lod_script: Script = load("res://scripts/tests/tokyo_lod_spatial_review.gd")
 		if lod_script == null or not lod_script.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_fail += await lod_script.new().run(self)
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	if OS.get_environment("AGL_TOKYO_CELLS_VARIANT") == "yokohama_joined_hierarchy":
 		var hierarchy_script: Script = load("res://scripts/tests/tokyo_hierarchical_review.gd")
 		if hierarchy_script == null or not hierarchy_script.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_fail += await hierarchy_script.new().run(self)
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	if OS.get_environment("AGL_TOKYO_SPATIAL_REVIEW") == "1":
 		var review_script: Script = load("res://scripts/tests/tokyo_spatial_review.gd")
 		if review_script == null or not review_script.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		var review: RefCounted = review_script.new()
 		_fail += await review.run(self)
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	if not OS.get_environment("AGL_TOKYO_SHELL_REVIEW").is_empty():
 		var review: RefCounted = load("res://scripts/tests/tokyo_shell_review.gd").new()
 		_fail += await review.run(self)
-		get_tree().quit(1 if _fail else 0)
+		AudioManager.request_quit(1 if _fail else 0)
 		return
 	var prefix := "tokyo_r8_" if OS.get_environment("AGL_TOKYO_CELLS_VARIANT") == "relief" else "tokyo_r7_"
 	var records: Array[Dictionary] = []
@@ -253,4 +253,4 @@ func _capture_sequence() -> void:
 	file.store_string(JSON.stringify({"candidate": true, "fail": _fail, "records": records}, "\t"))
 	file.close()
 	print("[Tokyo cells runtime Visual] output=", prefix, " captures=", records.size(), " fail=", _fail)
-	get_tree().quit(1 if _fail else 0)
+	AudioManager.request_quit(1 if _fail else 0)

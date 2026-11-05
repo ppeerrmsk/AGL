@@ -1,0 +1,3464 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-10-28",
+  "scope": "历史候选证据归档；不是当前 main 的性能认证，也不是新的测试结果。",
+  "main_commit": "87848001e3781b6bfc79ef2e8d50ea616d10faf1",
+  "environment": {
+    "godot": "4.7.2.stable.steam.ed1daf0bf",
+    "renderer": "GL Compatibility",
+    "gpu": "NVIDIA GeForce RTX 3080",
+    "driver": "610.88",
+    "c2_viewport": [
+      1600,
+      900
+    ],
+    "input_viewport": [
+      1920,
+      1080
+    ]
+  },
+  "provenance": {
+    "source_directory": "tmp/map-flicker-transaction-20261026",
+    "raw_evidence_archived": false,
+    "limitation": "保留汇总、逐轮指标、摘要和关键源码身份；原日志、截图与完整源码冻结仍在 tmp/bench，不构成独立复现包。",
+    "source_files": {
+      "final-v32-summary.json": {
+        "sha256": "a429553d74f10c7018003e9ec466c0189439b3c77a3db99b58dd40326a99db24",
+        "bytes": 11066
+      },
+      "final-v32-source-sha.json": {
+        "sha256": "b6d4fdf8f01ea3bd7bc651ac7a042f6b1b293b220c571c3a8555f3fb92daee77",
+        "bytes": 124744
+      },
+      "final-v32-cache-c2.json": {
+        "sha256": "0a28d553f57720e584c90f3371d07ddb260464f19315625d9a850577cf0ee937",
+        "bytes": 8409
+      },
+      "final-v32-192-matrix-1.json": {
+        "sha256": "1ce14afe017307963afdea1c9b45cd7ad6d10ae939a4f5cb4bc4c91ada9e6905",
+        "bytes": 30880
+      },
+      "final-v32-384-return-matrix.json": {
+        "sha256": "24699006ea7addef4b470c69209c8845e1b7f73ecca26aea5522e6875ab756f5",
+        "bytes": 17255
+      },
+      "final-v32-384-matrix-1.json": {
+        "sha256": "0f71c4eefecd858c35be4796f7ad0843f7ca86cd7991d39614b7aa4e39187f7f",
+        "bytes": 13642
+      },
+      "final-v32-gates.json": {
+        "sha256": "b54b5e1228348a8d5b98cf525fbfe9713157fc350e18cf5613b8d901b4990417",
+        "bytes": 1377
+      },
+      "v30-c2.json": {
+        "sha256": "f98baf9bafce24af81f30ea71b144b2a2b5b84b29cc2c4ad9eec7ecf5d804dab",
+        "bytes": 8225
+      },
+      "v31-c2.json": {
+        "sha256": "52f4db39ca43611f0677756f65e0c636a87d7d50390844313d702e310fc3d386",
+        "bytes": 8326
+      },
+      "v30-investigation.json": {
+        "sha256": "38f22bf53423734a5f1a80c3b80ac3f3158ef1175170f3413e7bf2978c6a7810",
+        "bytes": 1764
+      },
+      "v32-remaining-spikes.json": {
+        "sha256": "1e6439414bf06c52f09014bfe073712d288bb212fdfdf075096ad93f04910f53",
+        "bytes": 15287
+      },
+      "v30-wide-wall-trace-summary.json": {
+        "sha256": "1db9ec1d7dcadca81fd7a37dd332989d3d40c14fe389e2937166b3c51b7fb603",
+        "bytes": 1722
+      },
+      "v31-fast-wall-trace-summary.json": {
+        "sha256": "90c63cebda26d59bf84a19e734abf2371a758e20e04f52f49490f120235e1780",
+        "bytes": 1755
+      },
+      "lessons-doc-baseline.json": {
+        "sha256": "eb40917f04403cfb94aee9ce60bcbb644c8633b91b7c60521a18428844e6dbd6",
+        "bytes": 2180
+      }
+    },
+    "runtime_source_count": 1097,
+    "runtime_source_drift_at_documentation": [],
+    "key_runtime_sha256": {
+      "project.godot": "0e525556b98aa32a6770340b2a7d6589b55c3fbdd243e6dac9eb7cea24fb17e7",
+      "resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+      "scripts/camera_controller.gd": "14fb3f353379a094567a38ce72b1108922b26e0285ed014c01768e6785f23203",
+      "scripts/rendering/tokyo_cell_stream.gd": "7b403c4a624227dc98eb999ceec9fd8b589723c0a16e8c390f627fd0f008d71f",
+      "scripts/rendering/tokyo_hlod_overlay.gd": "a497eb2cc7afe7cf7a704efb94dd554e1c6d9feb9ca5d273fbbb59addb4f70ff",
+      "scripts/rendering/tokyo_hlod_stream.gd": "a5d398e9a03c7de24d4fd503350b5844ad455d4e751b4f71d30d27c80afcb1db",
+      "scripts/rendering/tokyo_map_plan_worker.gd": "520a3677850424c91a087cd8c417f774cb4f6af018c78c060c8a525b1000efcf",
+      "scripts/rendering/tokyo_map_planner.gd": "6818d535d149795d7dcef7c49a4a6b7eb22b2957ab29cedef95b7c5ad5036f37",
+      "scripts/tests/tokyo_camera_return_audit.gd": "b4af917393eba52bf7e09863bf6096b24ada36d510d6f8c6c9d233afce39f210",
+      "scripts/tests/tokyo_entry_burst_audit.gd": "681d5d50d8419a4e999d9f516e0de12891cabaec92a18e956dc65ba550445a5f"
+    },
+    "documentation_comparison": {
+      "docs/reference/performance-guidelines.md": {
+        "main_blob": "343bc542b926076c9fb8c9daccd98f6300844452",
+        "working_sha256": "426b499b43387c355cefa5c034b72a6605e722e11619c962143dbe7a4c8b0991",
+        "same_text_as_main": true
+      },
+      "docs/systems/map-volume-engineering.md": {
+        "main_blob": "ca33d8f447a109d5c7c7d74b85b81ffee4bbc32b",
+        "working_sha256": "86f969bdd6faf548183eba06c7e5834b4f1954fe776a53f2ed6d0a97604c3cd3",
+        "same_text_as_main": true
+      },
+      "docs/handoffs/2026-10-17-performance-diagnosis.md": {
+        "main_blob": "89b5e841852cc188c8e0595dea53895d98e02ac0",
+        "working_sha256": "17647a72762304f6c1bbc17553404382a0cb763921283790c4c967a55cf722de",
+        "same_text_as_main": true
+      },
+      "docs/handoffs/2026-10-19-physics-step-scaling.md": {
+        "main_blob": "b99453bef30907f04e87f16084b83f1240589895",
+        "working_sha256": "8d75fbeec472903c881a9ecbdfe84eccb9e071887bbfda183ebe4adaabdf8d91",
+        "same_text_as_main": true
+      },
+      "docs/handoffs/2026-10-20-sim-divisor-stagger.md": {
+        "main_blob": "6d8648870f61dc72630595ea4ab67393e0a261b5",
+        "working_sha256": "76263f92eee423e1fa0855e6672c614363d09dfa0fb92835b2554f6343c985f0",
+        "same_text_as_main": true
+      },
+      "docs/reference/runtime-validation-workflow.md": {
+        "main_blob": "bcf2c383fbeff83b974f5aea90746a0a22504aaa",
+        "working_sha256": "b54e13042160408e95679682f78a2627292b88e8cdc4f41c3a13368c277b92ef",
+        "same_text_as_main": false
+      },
+      "docs/specs/systems/tokyo-prepared-streaming.md": {
+        "main_blob": "cfcdcb68202ca3e6a3852861b32802528b37dcdf",
+        "working_sha256": "4c31814e8f0bb21cd0afea47877ecadfa136ecd791d473258efd4063e966b907",
+        "same_text_as_main": false
+      },
+      "docs/reference/_INDEX.md": {
+        "main_blob": "aa74a7a19da82c63672efb49d8d43774a58fd394",
+        "working_sha256": "013e06cebe776aa08e4aa35df913c527c74a20373e2ec3a41fb0693aca6fdc10",
+        "same_text_as_main": true
+      },
+      "docs/specs/systems/tokyo-map-distribution.md": {
+        "main_blob": "3db93a501fa259ffbe1734e6c89d8c47680fe51a",
+        "working_sha256": "96f06c6e8a872649d66ce683bb47d6bcd4f26570705150806bb85ba1dc695c01",
+        "same_text_as_main": false
+      }
+    }
+  },
+  "comparison_contract": {
+    "pair_order": [
+      [
+        192,
+        384
+      ],
+      [
+        384,
+        192
+      ],
+      [
+        192,
+        384
+      ]
+    ],
+    "profile": "tokyo_volume_c2",
+    "duration_seconds": 30,
+    "warmup_seconds": 3,
+    "route_segments_completed": 8,
+    "actor_target": 48,
+    "span_km": 24,
+    "capacity_policy_note": "配置入口仅改变固定缓存档；384 MiB 同时沿已有有界邻区预热，192 MiB 不执行该额外预热。结果是档位策略整体对照，不能归因于纯容量。",
+    "statistics_note": "medians 是三个独立轮次指标的中位数；total slow 是计数合计；max_frame 是三轮最大值。wall low1_fps 为最慢 ceil(1%*n) 帧平均时长的倒数，不等同于引擎 p1_fps。"
+  },
+  "final_summary": {
+    "status": "not_accepted_strict_performance_and_manual_f5_open",
+    "source_freeze": "final-v32-source-sha.json",
+    "source_count": 1097,
+    "selected_cache_mib": 384,
+    "display_mib": 96,
+    "faces": 240000,
+    "pages": 16,
+    "default_enabled": false,
+    "default_cache_mib": 96,
+    "default_package_sha256": "424e4aa1db195308389ffcce30ff672bc5b23851810801847199b4d9d572d858",
+    "candidate_package_sha256": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+    "flags": {
+      "wide_handoff": true,
+      "fast_file_probe": true,
+      "reuse_texture": false,
+      "balanced_io": false,
+      "small_uploads": false
+    },
+    "manual_config": "tmp/tokyo-manual-f5-v32-384.json",
+    "original_failures": [
+      "autogame-v29-20261028-summary.json",
+      "final-v31-192-matrix-1.json"
+    ],
+    "wide_handoff_comparison_v30": {
+      "0": {
+        "rounds": 3,
+        "samples": 13135,
+        "slow_frames": 40,
+        "max_frame_ms": 19.617,
+        "loads": 569,
+        "peak_pool_bytes": 201321884,
+        "display_anomalies": 0,
+        "wrapper_exits": [
+          1,
+          1,
+          1
+        ],
+        "source": "v30-c2.json"
+      },
+      "1": {
+        "rounds": 3,
+        "samples": 13346,
+        "slow_frames": 27,
+        "max_frame_ms": 24.402,
+        "loads": 580,
+        "peak_pool_bytes": 201325924,
+        "display_anomalies": 0,
+        "wrapper_exits": [
+          1,
+          1,
+          1
+        ],
+        "source": "v30-c2.json"
+      }
+    },
+    "file_probe_comparison_v31": {
+      "0": {
+        "rounds": 3,
+        "samples": 13437,
+        "slow_frames": 49,
+        "max_frame_ms": 23.81,
+        "loads": 583,
+        "peak_pool_bytes": 201321084,
+        "display_anomalies": 0,
+        "wrapper_exits": [
+          1,
+          1,
+          1
+        ],
+        "source": "v31-c2.json"
+      },
+      "1": {
+        "rounds": 3,
+        "samples": 13478,
+        "slow_frames": 23,
+        "max_frame_ms": 28.096,
+        "loads": 575,
+        "peak_pool_bytes": 201326460,
+        "display_anomalies": 0,
+        "wrapper_exits": [
+          1,
+          1,
+          1
+        ],
+        "source": "v31-c2.json"
+      }
+    },
+    "cache_comparison_v32": {
+      "192": {
+        "rounds": 3,
+        "samples": 13640,
+        "slow_frames": 33,
+        "max_frame_ms": 25.123,
+        "loads": 567,
+        "peak_pool_bytes": 201325112,
+        "display_anomalies": 0,
+        "wrapper_exits": [
+          1,
+          1,
+          1
+        ],
+        "source": "final-v32-cache-c2.json"
+      },
+      "384": {
+        "rounds": 3,
+        "samples": 13678,
+        "slow_frames": 26,
+        "max_frame_ms": 23.28,
+        "loads": 277,
+        "peak_pool_bytes": 402632912,
+        "display_anomalies": 0,
+        "wrapper_exits": [
+          1,
+          1,
+          1
+        ],
+        "source": "final-v32-cache-c2.json"
+      }
+    },
+    "input_192": {
+      "runs": 6,
+      "frames": 22690,
+      "fail": 0,
+      "wrapper_exits": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "display_anomalies": {
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0
+      },
+      "waits_ms": {
+        "final-v32-192-r1-sweep": 188,
+        "final-v32-192-r1-return": 264,
+        "final-v32-192-r2-sweep": 217,
+        "final-v32-192-r2-return": 324,
+        "final-v32-192-r3-sweep": 168,
+        "final-v32-192-r3-return": 224
+      },
+      "all_within_250ms_target": false,
+      "return_cases": 33,
+      "min_return_distance_px": 1921.85658575238,
+      "max_return_response_ms": 30,
+      "max_return_settled_ms": 896,
+      "return_modal_resumes": 3,
+      "streams_released": true,
+      "performance_sample": false
+    },
+    "input_384": {
+      "runs": 6,
+      "frames": 22674,
+      "fail": 0,
+      "wrapper_exits": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "display_anomalies": {
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0
+      },
+      "waits_ms": {
+        "v32-cache384-probe-r1-return": 189,
+        "v32-cache384-probe-r2-return": 216,
+        "v32-cache384-probe-r3-return": 171,
+        "final-v32-384-r1-sweep": 206,
+        "final-v32-384-r2-sweep": 200,
+        "final-v32-384-r3-sweep": 146
+      },
+      "all_within_250ms_target": true,
+      "return_cases": 33,
+      "min_return_distance_px": 1656.96700801724,
+      "max_return_response_ms": 24,
+      "max_return_settled_ms": 893,
+      "return_modal_resumes": 3,
+      "streams_released": true,
+      "performance_sample": false
+    },
+    "all": {
+      "unit_groups": 105,
+      "lifecycle_cases": 93,
+      "passed": true
+    },
+    "core_c1": {
+      "result": "battlefield_atmosphere_stress_36_20261028_062323.txt",
+      "engine_render_summary": "render_frames=5889 avg_fps=218.11 p1_fps=88.68 worst_frame_fps=71.77 frames_below_60=0",
+      "render_wall_clock": {
+        "avg_fps": 218.138368338342,
+        "below60": 0,
+        "complete": true,
+        "low01_fps": 69.6071834613332,
+        "low1_fps": 84.7060985519564,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 16.005,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 3.723,
+        "p95_ms": 8.655,
+        "p999_ms": 13.658,
+        "p99_ms": 10.859,
+        "passed": true,
+        "samples": 5888,
+        "slow_records": [],
+        "trace": false
+      },
+      "render_strict_60_passed": true
+    },
+    "core_c2": {
+      "result": "battlefield_atmosphere_stress_48_24km_20261028_062404.txt",
+      "engine_render_summary": "render_frames=5663 avg_fps=209.69 p1_fps=85.37 worst_frame_fps=60.28 frames_below_60=0",
+      "render_wall_clock": {
+        "avg_fps": 209.806042428844,
+        "below60": 0,
+        "complete": true,
+        "low01_fps": 67.1373742572928,
+        "low1_fps": 77.5670614875457,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 15.587,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 3.694,
+        "p95_ms": 9.682,
+        "p999_ms": 14.429,
+        "p99_ms": 11.867,
+        "passed": true,
+        "samples": 5662,
+        "slow_records": [],
+        "trace": false
+      },
+      "render_strict_60_passed": true
+    },
+    "tokyo_c1_192": {
+      "result": "tokyo_volume_c1_20261028_062445.txt",
+      "engine_render_summary": "render_frames=5486 avg_fps=203.20 p1_fps=90.71 worst_frame_fps=54.57 frames_below_60=2",
+      "render_wall_clock": {
+        "avg_fps": 203.218002454844,
+        "below60": 3,
+        "complete": true,
+        "low01_fps": 59.9053495477146,
+        "low1_fps": 76.4525993883792,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 17.912,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.055,
+        "p95_ms": 9.294,
+        "p999_ms": 15.557,
+        "p99_ms": 11.516,
+        "passed": false,
+        "samples": 5485,
+        "slow_records": [],
+        "trace": false
+      },
+      "render_strict_60_passed": false,
+      "tokyo_hlod_visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 5486,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 213
+      }
+    },
+    "tokyo_c1_384": {
+      "result": "tokyo_volume_c1_20261028_064400.txt",
+      "engine_render_summary": "render_frames=5340 avg_fps=197.78 p1_fps=87.59 worst_frame_fps=56.23 frames_below_60=1",
+      "render_wall_clock": {
+        "avg_fps": 197.800601063381,
+        "below60": 0,
+        "complete": true,
+        "low01_fps": 65.5365256903181,
+        "low1_fps": 78.0966402536116,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 16.576,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.197,
+        "p95_ms": 9.462,
+        "p999_ms": 14.15,
+        "p99_ms": 11.687,
+        "passed": true,
+        "samples": 5339,
+        "slow_records": [],
+        "trace": false
+      },
+      "render_strict_60_passed": false,
+      "tokyo_hlod_visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 5340,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 172
+      }
+    },
+    "autoplay": {
+      "wrapper_exit": 0,
+      "passed": true,
+      "budget_mib": 384,
+      "seconds": 300.0,
+      "real_profile_changes": [],
+      "source_check_exit": 0,
+      "player_invulnerable": true,
+      "shots_enabled": false
+    },
+    "small_upload_probe": {
+      "result": "tokyo_volume_c2_20261028_062548.txt",
+      "texture_started": 195,
+      "texture_completed": 194,
+      "texture_reuses": 0,
+      "texture_slot_handoffs": 0,
+      "max_texture_reuse_usec": 0,
+      "texture_upload_usec": 216542,
+      "max_texture_upload_usec": 6361,
+      "peak_total_bytes": 201325320,
+      "fast_file_probe_hits": 135,
+      "textures": [],
+      "render_wall_clock": {
+        "avg_fps": 160.37247034388,
+        "below60": 28,
+        "complete": true,
+        "low01_fps": 43.6898718139161,
+        "low1_fps": 56.2400940743392,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 25.722,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.878,
+        "p95_ms": 12.234,
+        "p999_ms": 20.146,
+        "p99_ms": 15.258,
+        "passed": false,
+        "samples": 4327,
+        "slow_records": [],
+        "trace": false
+      },
+      "tokyo_hlod_visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 4328,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 304
+      },
+      "tokyo_unit_census_start": {
+        "aircraft": 33,
+        "aircraft_processing": 32,
+        "composition": {},
+        "elapsed": 3.01666666666666,
+        "ground": 12,
+        "lod0": 26,
+        "lod1": 0,
+        "lod2": 7,
+        "naval": 6,
+        "other": 20,
+        "sim_divided": 0,
+        "sim_divided_formation": 0
+      },
+      "tokyo_unit_census_end": {
+        "aircraft": 33,
+        "aircraft_processing": 33,
+        "composition": {},
+        "elapsed": 30.0166666666662,
+        "ground": 11,
+        "lod0": 24,
+        "lod1": 0,
+        "lod2": 9,
+        "naval": 6,
+        "other": 20,
+        "sim_divided": 0,
+        "sim_divided_formation": 0
+      }
+    },
+    "manual_f5_completed": false,
+    "static_checks": {
+      "doc_anchors": 0,
+      "docs": 0,
+      "diff_check": 0,
+      "player_ref_holders": 0
+    },
+    "bench_lock_present_after_tests": false
+  },
+  "cache_c2_rounds": [
+    {
+      "budget_mib": 192,
+      "fast": 1,
+      "package_sha": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+      "log": "tmp/map-flicker-transaction-20261026/final-v32-cache-c2-r1-cache192.log",
+      "max_upload_usec": 6239,
+      "texture_started": 191,
+      "result_file": "bench/results/tokyo_volume_c2_20261028_063301.txt",
+      "round": 1,
+      "peak_pool_bytes": 201325112,
+      "wrapper_exit": 1,
+      "texture_completed": 190,
+      "final_load": "atmosphere_target=48 live_members=47 span_km=24.0 shells=9",
+      "wall": {
+        "avg_fps": 164.555946334748,
+        "below60": 15,
+        "complete": true,
+        "low01_fps": 48.5913371364153,
+        "low1_fps": 60.578973442178,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 25.123,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.859,
+        "p95_ms": 11.906,
+        "p999_ms": 18.679,
+        "p99_ms": 14.943,
+        "passed": false,
+        "samples": 4440,
+        "slow_records": [],
+        "trace": false
+      },
+      "visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 4441,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 311
+      },
+      "wide": 1
+    },
+    {
+      "budget_mib": 384,
+      "fast": 1,
+      "package_sha": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+      "log": "tmp/map-flicker-transaction-20261026/final-v32-cache-c2-r1-cache384.log",
+      "max_upload_usec": 5962,
+      "texture_started": 92,
+      "result_file": "bench/results/tokyo_volume_c2_20261028_063404.txt",
+      "round": 1,
+      "peak_pool_bytes": 402619316,
+      "wrapper_exit": 1,
+      "texture_completed": 91,
+      "final_load": "atmosphere_target=48 live_members=47 span_km=24.0 shells=9",
+      "wall": {
+        "avg_fps": 166.68166517614,
+        "below60": 9,
+        "complete": true,
+        "low01_fps": 52.4598419909559,
+        "low1_fps": 63.5643497225769,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 23.28,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.794,
+        "p95_ms": 11.628,
+        "p999_ms": 17.697,
+        "p99_ms": 14.301,
+        "passed": false,
+        "samples": 4499,
+        "slow_records": [],
+        "trace": false
+      },
+      "visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 4500,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 259
+      },
+      "wide": 1
+    },
+    {
+      "budget_mib": 384,
+      "fast": 1,
+      "package_sha": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+      "log": "tmp/map-flicker-transaction-20261026/final-v32-cache-c2-r2-cache384.log",
+      "max_upload_usec": 6117,
+      "texture_started": 94,
+      "result_file": "bench/results/tokyo_volume_c2_20261028_063507.txt",
+      "round": 2,
+      "peak_pool_bytes": 402614020,
+      "wrapper_exit": 1,
+      "texture_completed": 93,
+      "final_load": "atmosphere_target=48 live_members=47 span_km=24.0 shells=9",
+      "wall": {
+        "avg_fps": 174.468607117704,
+        "below60": 11,
+        "complete": true,
+        "low01_fps": 53.2028091083209,
+        "low1_fps": 63.4193325907986,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 19.431,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.472,
+        "p95_ms": 11.062,
+        "p999_ms": 18.092,
+        "p99_ms": 13.998,
+        "passed": false,
+        "samples": 4709,
+        "slow_records": [],
+        "trace": false
+      },
+      "visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 4710,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 271
+      },
+      "wide": 1
+    },
+    {
+      "budget_mib": 192,
+      "fast": 1,
+      "package_sha": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+      "log": "tmp/map-flicker-transaction-20261026/final-v32-cache-c2-r2-cache192.log",
+      "max_upload_usec": 5429,
+      "texture_started": 188,
+      "result_file": "bench/results/tokyo_volume_c2_20261028_063610.txt",
+      "round": 2,
+      "peak_pool_bytes": 201312224,
+      "wrapper_exit": 1,
+      "texture_completed": 188,
+      "final_load": "atmosphere_target=48 live_members=47 span_km=24.0 shells=9",
+      "wall": {
+        "avg_fps": 168.169116999504,
+        "below60": 7,
+        "complete": true,
+        "low01_fps": 58.1023763871942,
+        "low1_fps": 64.5954917963725,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 17.576,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.7,
+        "p95_ms": 11.694,
+        "p999_ms": 16.963,
+        "p99_ms": 14.167,
+        "passed": false,
+        "samples": 4539,
+        "slow_records": [],
+        "trace": false
+      },
+      "visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 4540,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 327
+      },
+      "wide": 1
+    },
+    {
+      "budget_mib": 192,
+      "fast": 1,
+      "package_sha": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+      "log": "tmp/map-flicker-transaction-20261026/final-v32-cache-c2-r3-cache192.log",
+      "max_upload_usec": 5757,
+      "texture_started": 188,
+      "result_file": "bench/results/tokyo_volume_c2_20261028_063713.txt",
+      "round": 3,
+      "peak_pool_bytes": 201293496,
+      "wrapper_exit": 1,
+      "texture_completed": 188,
+      "final_load": "atmosphere_target=48 live_members=47 span_km=24.0 shells=9",
+      "wall": {
+        "avg_fps": 172.690934911523,
+        "below60": 11,
+        "complete": true,
+        "low01_fps": 53.9735313802111,
+        "low1_fps": 63.4230071681492,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 20.317,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.584,
+        "p95_ms": 11.347,
+        "p999_ms": 17.797,
+        "p99_ms": 14.158,
+        "passed": false,
+        "samples": 4661,
+        "slow_records": [],
+        "trace": false
+      },
+      "visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 4662,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 322
+      },
+      "wide": 1
+    },
+    {
+      "budget_mib": 384,
+      "fast": 1,
+      "package_sha": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+      "log": "tmp/map-flicker-transaction-20261026/final-v32-cache-c2-r3-cache384.log",
+      "max_upload_usec": 8323,
+      "texture_started": 91,
+      "result_file": "bench/results/tokyo_volume_c2_20261028_063815.txt",
+      "round": 3,
+      "peak_pool_bytes": 402632912,
+      "wrapper_exit": 1,
+      "texture_completed": 91,
+      "final_load": "atmosphere_target=48 live_members=47 span_km=24.0 shells=9",
+      "wall": {
+        "avg_fps": 165.608998192639,
+        "below60": 6,
+        "complete": true,
+        "low01_fps": 54.1952546635017,
+        "low1_fps": 64.1751496707102,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 21.468,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 4.783,
+        "p95_ms": 11.734,
+        "p999_ms": 17.079,
+        "p99_ms": 14.425,
+        "passed": false,
+        "samples": 4470,
+        "slow_records": [],
+        "trace": false
+      },
+      "visibility": {
+        "budget_frames": 0,
+        "expired_frames": 0,
+        "gaps": [],
+        "hidden_frames": 0,
+        "native_ground_frames": 0,
+        "quality_failures": [],
+        "samples": 4471,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0,
+        "waiting_frames": 269
+      },
+      "wide": 1
+    }
+  ],
+  "cache_c2_medians": {
+    "192": {
+      "avg_fps": 168.169116999504,
+      "low1_fps": 63.4230071681492,
+      "p95_ms": 11.694,
+      "p99_ms": 14.167,
+      "below60": 11,
+      "max_ms": 20.317
+    },
+    "384": {
+      "avg_fps": 166.68166517614,
+      "low1_fps": 63.5643497225769,
+      "p95_ms": 11.628,
+      "p99_ms": 14.301,
+      "below60": 9,
+      "max_ms": 21.468
+    }
+  },
+  "input_rounds": {
+    "192": [
+      {
+        "run": "final-v32-192-r1-sweep",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 4218,
+        "max_wait_ms": 188,
+        "min_zoom": 0.200123220682144,
+        "max_zoom": 5.0,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": null,
+        "wasd": {
+          "distance": 164619.980920106,
+          "mode": "sweep",
+          "peak_speed": 2399.99975585938,
+          "segments": [
+            {
+              "keys": [
+                68
+              ],
+              "ms": 1001,
+              "position": [
+                -3997.73291015625,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 4009,
+              "position": [
+                -1619.46313476563,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 7006,
+              "position": [
+                -15608.2021484375,
+                -13272.556640625
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 10006,
+              "position": [
+                -11171.4208984375,
+                -15602.8037109375
+              ]
+            },
+            {
+              "keys": [],
+              "ms": 10307,
+              "position": [
+                -11171.4208984375,
+                -15475.056640625
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 12488,
+              "position": [
+                -11171.4208984375,
+                -15421.97265625
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 15215,
+              "position": [
+                -11171.166015625,
+                -3772.33911132813
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 18210,
+              "position": [
+                -6278.1962890625,
+                -7825.07958984375
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 21210,
+              "position": [
+                -15335.49609375,
+                2276.9423828125
+              ]
+            },
+            {
+              "keys": [
+                83,
+                68
+              ],
+              "ms": 24213,
+              "position": [
+                -14785.8720703125,
+                -9310.974609375
+              ]
+            },
+            {
+              "keys": [
+                68
+              ],
+              "ms": 27209,
+              "position": [
+                -6394.189453125,
+                -919.291809082031
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 30216,
+              "position": [
+                1101.83874511719,
+                -425.571380615234
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 33206,
+              "position": [
+                -13322.6123046875,
+                -425.571380615234
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 36207,
+              "position": [
+                -11171.203125,
+                -15599.1337890625
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 39205,
+              "position": [
+                -11171.203125,
+                -4449.681640625
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 42214,
+              "position": [
+                -6342.74658203125,
+                -8690.9541015625
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 45210,
+              "position": [
+                -15351.419921875,
+                1576.53564453125
+              ]
+            }
+          ]
+        },
+        "formal_ui": {
+          "active_ms": 45013,
+          "modal_frames": 490,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 10284,
+              "choice": "armor_up",
+              "ms": 11092
+            }
+          ],
+          "wall_ms": 47224
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "final-v32-192-r1-return",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 3387,
+        "max_wait_ms": 264,
+        "min_zoom": 0.200000002980232,
+        "max_zoom": 4.22275543212891,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": {
+          "cases": [
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 3806.67544734888,
+              "last_error_px": 6.87485590688669,
+              "peak_follow_speed": 294.050300015954,
+              "phase": 0,
+              "response_ms": 14,
+              "settled_ms": 651,
+              "start_ms": 3009,
+              "tracking_allowance_px": 8.40143726850414,
+              "zoom": 0.200000002980232
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 15719.2448838595,
+              "last_error_px": 55.5610507026358,
+              "peak_follow_speed": 189.141200961385,
+              "phase": 1,
+              "response_ms": 11,
+              "settled_ms": 768,
+              "start_ms": 7007,
+              "tracking_allowance_px": 114.099576257011,
+              "zoom": 4.22042083740234
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2196.7693874964,
+              "last_error_px": 2.23023036465392,
+              "peak_follow_speed": 87.357021385144,
+              "phase": 2,
+              "response_ms": 11,
+              "settled_ms": 631,
+              "start_ms": 11005,
+              "tracking_allowance_px": 2.49591493391043,
+              "zoom": 0.20014825463295
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 15362.8709822658,
+              "last_error_px": 55.6241478287484,
+              "peak_follow_speed": 104.371586092982,
+              "phase": 3,
+              "response_ms": 15,
+              "settled_ms": 890,
+              "start_ms": 15005,
+              "tracking_allowance_px": 62.9622403048642,
+              "zoom": 4.22039175033569
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2277.31531943195,
+              "last_error_px": 4.58380667841146,
+              "peak_follow_speed": 175.214559439835,
+              "phase": 4,
+              "response_ms": 17,
+              "settled_ms": 636,
+              "start_ms": 19012,
+              "tracking_allowance_px": 5.00613034430671,
+              "zoom": 0.200133442878723
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16262.2775539756,
+              "last_error_px": 95.3684629629424,
+              "peak_follow_speed": 175.630475702142,
+              "phase": 5,
+              "response_ms": 13,
+              "settled_ms": 868,
+              "start_ms": 23004,
+              "tracking_allowance_px": 105.949220759801,
+              "zoom": 4.22054243087769
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2043.28999863315,
+              "last_error_px": 0.966015639394755,
+              "peak_follow_speed": 243.52758670794,
+              "phase": 6,
+              "response_ms": 15,
+              "settled_ms": 509,
+              "start_ms": 27026,
+              "tracking_allowance_px": 6.95793115247955,
+              "zoom": 0.200193211436272
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 22227.3622440326,
+              "last_error_px": 116.17778883854,
+              "peak_follow_speed": 297.271342802515,
+              "phase": 7,
+              "response_ms": 18,
+              "settled_ms": 827,
+              "start_ms": 31005,
+              "tracking_allowance_px": 179.329168233654,
+              "zoom": 4.22040414810181
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2041.05008832343,
+              "last_error_px": 0.0454345709895279,
+              "peak_follow_speed": 172.522021706921,
+              "phase": 8,
+              "response_ms": 29,
+              "settled_ms": 306,
+              "start_ms": 35013,
+              "tracking_allowance_px": 4.92920069364855,
+              "zoom": 0.200032606720924
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 20994.3809687095,
+              "last_error_px": 95.7128392485174,
+              "peak_follow_speed": 176.464737400455,
+              "phase": 9,
+              "response_ms": 16,
+              "settled_ms": 660,
+              "start_ms": 39003,
+              "tracking_allowance_px": 106.45248977671,
+              "zoom": 4.22003364562988
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 1962.09510269557,
+              "last_error_px": 0.335437016717151,
+              "peak_follow_speed": 228.168717829062,
+              "phase": 10,
+              "response_ms": 29,
+              "settled_ms": 354,
+              "start_ms": 43013,
+              "tracking_allowance_px": 6.51910632082973,
+              "zoom": 0.200143024325371
+            }
+          ],
+          "departure_resumes": 1,
+          "distance": 188151.515309509,
+          "fail": 0,
+          "first_response_limit_ms": 250,
+          "peak_speed": 2399.99951171875,
+          "settle_error_px": 20,
+          "settle_limit_ms": 1500,
+          "wheel_events": 384
+        },
+        "wasd": null,
+        "formal_ui": {
+          "active_ms": 45003,
+          "modal_frames": 21,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 33293,
+              "choice": "boundary_cancel",
+              "ms": 33475
+            }
+          ],
+          "wall_ms": 45196
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "final-v32-192-r2-sweep",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 3988,
+        "max_wait_ms": 217,
+        "min_zoom": 0.200137794017792,
+        "max_zoom": 5.0,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": null,
+        "wasd": {
+          "distance": 160997.868599474,
+          "mode": "sweep",
+          "peak_speed": 2399.99975585938,
+          "segments": [
+            {
+              "keys": [
+                68
+              ],
+              "ms": 1000,
+              "position": [
+                -3997.73291015625,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 4000,
+              "position": [
+                -1631.50561523438,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 7001,
+              "position": [
+                -15182.8955078125,
+                -13273.22265625
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 10003,
+              "position": [
+                -11171.5478515625,
+                -15607.927734375
+              ]
+            },
+            {
+              "keys": [],
+              "ms": 10305,
+              "position": [
+                -11171.5478515625,
+                -15481.30078125
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 12488,
+              "position": [
+                -11171.5478515625,
+                -15429.291015625
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 15217,
+              "position": [
+                -11171.33203125,
+                -3840.27294921875
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 18203,
+              "position": [
+                -6419.64892578125,
+                -7914.55859375
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 21208,
+              "position": [
+                -15367.298828125,
+                2085.91772460938
+              ]
+            },
+            {
+              "keys": [
+                83,
+                68
+              ],
+              "ms": 24214,
+              "position": [
+                -14781.193359375,
+                -9493.2578125
+              ]
+            },
+            {
+              "keys": [
+                68
+              ],
+              "ms": 27212,
+              "position": [
+                -7731.33154296875,
+                -2443.39379882813
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 30212,
+              "position": [
+                1088.46337890625,
+                -2068.38500976563
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 33207,
+              "position": [
+                -13355.1318359375,
+                -2068.38500976563
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 36212,
+              "position": [
+                -11171.427734375,
+                -15611.7568359375
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 39219,
+              "position": [
+                -11171.427734375,
+                -4450.435546875
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 42212,
+              "position": [
+                -6366.072265625,
+                -8585.8486328125
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 45204,
+              "position": [
+                -15343.7529296875,
+                1279.24853515625
+              ]
+            }
+          ]
+        },
+        "formal_ui": {
+          "active_ms": 45003,
+          "modal_frames": 499,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 10285,
+              "choice": "ghost_buster",
+              "ms": 11093
+            }
+          ],
+          "wall_ms": 47211
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "final-v32-192-r2-return",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 3356,
+        "max_wait_ms": 324,
+        "min_zoom": 0.200000002980232,
+        "max_zoom": 4.22275543212891,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": {
+          "cases": [
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 3809.50357239103,
+              "last_error_px": 7.60897075547234,
+              "peak_follow_speed": 298.508183576487,
+              "phase": 0,
+              "response_ms": 15,
+              "settled_ms": 660,
+              "start_ms": 3009,
+              "tracking_allowance_px": 8.5288053721316,
+              "zoom": 0.200000002980232
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16219.6035681563,
+              "last_error_px": 71.1589155979163,
+              "peak_follow_speed": 222.745038309586,
+              "phase": 1,
+              "response_ms": 12,
+              "settled_ms": 768,
+              "start_ms": 7002,
+              "tracking_allowance_px": 134.37111721451,
+              "zoom": 4.22035026550293
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2214.14266486606,
+              "last_error_px": 2.34286979351744,
+              "peak_follow_speed": 92.0223893749603,
+              "phase": 2,
+              "response_ms": 15,
+              "settled_ms": 638,
+              "start_ms": 11008,
+              "tracking_allowance_px": 2.62921116417716,
+              "zoom": 0.200137853622437
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 15488.2838093229,
+              "last_error_px": 60.90825426847,
+              "peak_follow_speed": 113.449021221679,
+              "phase": 3,
+              "response_ms": 15,
+              "settled_ms": 896,
+              "start_ms": 15003,
+              "tracking_allowance_px": 68.4382100905073,
+              "zoom": 4.22063446044922
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2232.61453384029,
+              "last_error_px": 4.22225157353657,
+              "peak_follow_speed": 174.986089366255,
+              "phase": 4,
+              "response_ms": 14,
+              "settled_ms": 632,
+              "start_ms": 19002,
+              "tracking_allowance_px": 4.99960262782146,
+              "zoom": 0.200163468718529
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16537.0142590668,
+              "last_error_px": 98.2806683726812,
+              "peak_follow_speed": 178.463895191346,
+              "phase": 5,
+              "response_ms": 15,
+              "settled_ms": 858,
+              "start_ms": 23003,
+              "tracking_allowance_px": 107.658483265449,
+              "zoom": 4.22044897079468
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2126.99918601911,
+              "last_error_px": 0.427880865750922,
+              "peak_follow_speed": 234.771530102268,
+              "phase": 6,
+              "response_ms": 15,
+              "settled_ms": 417,
+              "start_ms": 27007,
+              "tracking_allowance_px": 6.70775810287533,
+              "zoom": 0.200142666697502
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21782.5174824251,
+              "last_error_px": 126.231930085196,
+              "peak_follow_speed": 297.733994390316,
+              "phase": 7,
+              "response_ms": 8,
+              "settled_ms": 849,
+              "start_ms": 31012,
+              "tracking_allowance_px": 179.60826316302,
+              "zoom": 4.22037696838379
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2045.54260604712,
+              "last_error_px": 0.75806275543664,
+              "peak_follow_speed": 175.108844355091,
+              "phase": 8,
+              "response_ms": 20,
+              "settled_ms": 264,
+              "start_ms": 35013,
+              "tracking_allowance_px": 5.00310991326903,
+              "zoom": 0.200032949447632
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21223.3124644263,
+              "last_error_px": 95.7533683190559,
+              "peak_follow_speed": 174.883283703588,
+              "phase": 9,
+              "response_ms": 12,
+              "settled_ms": 664,
+              "start_ms": 39005,
+              "tracking_allowance_px": 105.498476606838,
+              "zoom": 4.22044849395752
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 1921.85658575238,
+              "last_error_px": 1.43562013857991,
+              "peak_follow_speed": 172.541510733398,
+              "phase": 10,
+              "response_ms": 30,
+              "settled_ms": 344,
+              "start_ms": 43012,
+              "tracking_allowance_px": 4.92975752298476,
+              "zoom": 0.200161650776863
+            }
+          ],
+          "departure_resumes": 1,
+          "distance": 188731.448894145,
+          "fail": 0,
+          "first_response_limit_ms": 250,
+          "peak_speed": 2399.99951171875,
+          "settle_error_px": 20,
+          "settle_limit_ms": 1500,
+          "wheel_events": 384
+        },
+        "wasd": null,
+        "formal_ui": {
+          "active_ms": 45012,
+          "modal_frames": 16,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 33652,
+              "choice": "boundary_cancel",
+              "ms": 33825
+            }
+          ],
+          "wall_ms": 45200
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "final-v32-192-r3-sweep",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 4238,
+        "max_wait_ms": 168,
+        "min_zoom": 0.200125068426132,
+        "max_zoom": 5.0,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": null,
+        "wasd": {
+          "distance": 165871.668720067,
+          "mode": "sweep",
+          "peak_speed": 2399.99975585938,
+          "segments": [
+            {
+              "keys": [
+                68
+              ],
+              "ms": 1002,
+              "position": [
+                -3997.73291015625,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 4002,
+              "position": [
+                -1626.98706054688,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 7002,
+              "position": [
+                -15631.7958984375,
+                -13272.5107421875
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 10008,
+              "position": [
+                -11171.4580078125,
+                -15611.9912109375
+              ]
+            },
+            {
+              "keys": [],
+              "ms": 10312,
+              "position": [
+                -11171.4580078125,
+                -15488.6640625
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 12492,
+              "position": [
+                -11171.4580078125,
+                -15436.73828125
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 15203,
+              "position": [
+                -11171.4580078125,
+                -3981.21411132813
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 18204,
+              "position": [
+                -6379.37255859375,
+                -8009.30712890625
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 21202,
+              "position": [
+                -15344.05078125,
+                2337.380859375
+              ]
+            },
+            {
+              "keys": [
+                83,
+                68
+              ],
+              "ms": 24202,
+              "position": [
+                -14769.5888671875,
+                -9275.814453125
+              ]
+            },
+            {
+              "keys": [
+                68
+              ],
+              "ms": 27201,
+              "position": [
+                -6349.1728515625,
+                -855.396423339844
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 30212,
+              "position": [
+                1173.56201171875,
+                -326.899871826172
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 33201,
+              "position": [
+                -13365.6982421875,
+                -326.899871826172
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 36207,
+              "position": [
+                -11171.0,
+                -15598.205078125
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 39212,
+              "position": [
+                -11171.0,
+                -3574.20361328125
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 42204,
+              "position": [
+                -6364.42333984375,
+                -7662.82958984375
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 45208,
+              "position": [
+                -15355.4990234375,
+                2580.83569335938
+              ]
+            }
+          ]
+        },
+        "formal_ui": {
+          "active_ms": 45003,
+          "modal_frames": 522,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 10291,
+              "choice": "squad_revenge",
+              "ms": 11099
+            }
+          ],
+          "wall_ms": 47209
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "final-v32-192-r3-return",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 3503,
+        "max_wait_ms": 224,
+        "min_zoom": 0.200000002980232,
+        "max_zoom": 4.22275543212891,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": {
+          "cases": [
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 3832.12036960304,
+              "last_error_px": 7.70360195195082,
+              "peak_follow_speed": 298.483535484902,
+              "phase": 0,
+              "response_ms": 17,
+              "settled_ms": 650,
+              "start_ms": 3009,
+              "tracking_allowance_px": 8.52810114093294,
+              "zoom": 0.200000002980232
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16211.5150182308,
+              "last_error_px": 70.0712835177546,
+              "peak_follow_speed": 222.34939341141,
+              "phase": 1,
+              "response_ms": 14,
+              "settled_ms": 768,
+              "start_ms": 7004,
+              "tracking_allowance_px": 134.132444122657,
+              "zoom": 4.22013187408447
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2217.24653417506,
+              "last_error_px": 2.38558543899038,
+              "peak_follow_speed": 92.0722476674108,
+              "phase": 2,
+              "response_ms": 12,
+              "settled_ms": 638,
+              "start_ms": 11011,
+              "tracking_allowance_px": 2.63063568683983,
+              "zoom": 0.200136139988899
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 15421.450722098,
+              "last_error_px": 60.9578282806251,
+              "peak_follow_speed": 113.753637414576,
+              "phase": 3,
+              "response_ms": 16,
+              "settled_ms": 893,
+              "start_ms": 15010,
+              "tracking_allowance_px": 68.6219700452603,
+              "zoom": 4.22049951553345
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2274.18810207426,
+              "last_error_px": 4.47892157553019,
+              "peak_follow_speed": 174.998761682854,
+              "phase": 4,
+              "response_ms": 15,
+              "settled_ms": 633,
+              "start_ms": 19013,
+              "tracking_allowance_px": 4.99996469401539,
+              "zoom": 0.200137197971344
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16175.5562351928,
+              "last_error_px": 97.3844378887588,
+              "peak_follow_speed": 175.485999121579,
+              "phase": 5,
+              "response_ms": 13,
+              "settled_ms": 869,
+              "start_ms": 23009,
+              "tracking_allowance_px": 105.862065150459,
+              "zoom": 4.22037029266357
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2112.46474522419,
+              "last_error_px": 1.04104005457521,
+              "peak_follow_speed": 209.54555317784,
+              "phase": 6,
+              "response_ms": 19,
+              "settled_ms": 392,
+              "start_ms": 27003,
+              "tracking_allowance_px": 5.98701589429462,
+              "zoom": 0.200149402022362
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21277.8317803165,
+              "last_error_px": 118.02865934922,
+              "peak_follow_speed": 268.745675898523,
+              "phase": 7,
+              "response_ms": 12,
+              "settled_ms": 859,
+              "start_ms": 31003,
+              "tracking_allowance_px": 162.121037537377,
+              "zoom": 4.22028207778931
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2020.0834629444,
+              "last_error_px": 0.105676271105949,
+              "peak_follow_speed": 172.530265354729,
+              "phase": 8,
+              "response_ms": 26,
+              "settled_ms": 356,
+              "start_ms": 35018,
+              "tracking_allowance_px": 4.92943622644659,
+              "zoom": 0.20002356171608
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21407.0780468611,
+              "last_error_px": 80.3990040448116,
+              "peak_follow_speed": 151.72705243286,
+              "phase": 9,
+              "response_ms": 13,
+              "settled_ms": 689,
+              "start_ms": 39011,
+              "tracking_allowance_px": 91.5294621231098,
+              "zoom": 4.2206392288208
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 1956.91533884706,
+              "last_error_px": 0.942175307008256,
+              "peak_follow_speed": 201.912914601393,
+              "phase": 10,
+              "response_ms": 26,
+              "settled_ms": 385,
+              "start_ms": 43028,
+              "tracking_allowance_px": 5.76894050314657,
+              "zoom": 0.20013128221035
+            }
+          ],
+          "departure_resumes": 1,
+          "distance": 188951.112198274,
+          "fail": 0,
+          "first_response_limit_ms": 250,
+          "peak_speed": 2399.99951171875,
+          "settle_error_px": 20,
+          "settle_limit_ms": 1500,
+          "wheel_events": 384
+        },
+        "wasd": null,
+        "formal_ui": {
+          "active_ms": 45000,
+          "modal_frames": 17,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 34085,
+              "choice": "boundary_cancel",
+              "ms": 34253
+            }
+          ],
+          "wall_ms": 45179
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      }
+    ],
+    "384": [
+      {
+        "run": "v32-cache384-probe-r1-return",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 3350,
+        "max_wait_ms": 189,
+        "min_zoom": 0.200000002980232,
+        "max_zoom": 4.22275543212891,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": {
+          "cases": [
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 3817.66021313757,
+              "last_error_px": 7.05639582658404,
+              "peak_follow_speed": 298.549437064892,
+              "phase": 0,
+              "response_ms": 17,
+              "settled_ms": 635,
+              "start_ms": 3007,
+              "tracking_allowance_px": 8.52998404324644,
+              "zoom": 0.200000002980232
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16079.3283061098,
+              "last_error_px": 72.5209646022267,
+              "peak_follow_speed": 225.849002006378,
+              "phase": 1,
+              "response_ms": 13,
+              "settled_ms": 766,
+              "start_ms": 7006,
+              "tracking_allowance_px": 136.243585723332,
+              "zoom": 4.22040891647339
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2199.69104029855,
+              "last_error_px": 2.3536491744764,
+              "peak_follow_speed": 92.0091498501432,
+              "phase": 2,
+              "response_ms": 14,
+              "settled_ms": 630,
+              "start_ms": 11003,
+              "tracking_allowance_px": 2.6288328920339,
+              "zoom": 0.200147539377213
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 15412.1003712993,
+              "last_error_px": 60.1612894840218,
+              "peak_follow_speed": 112.774757128218,
+              "phase": 3,
+              "response_ms": 17,
+              "settled_ms": 893,
+              "start_ms": 15007,
+              "tracking_allowance_px": 68.0314597528858,
+              "zoom": 4.22048187255859
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2264.4776304595,
+              "last_error_px": 4.4260086719097,
+              "peak_follow_speed": 174.04141637649,
+              "phase": 4,
+              "response_ms": 16,
+              "settled_ms": 624,
+              "start_ms": 19014,
+              "tracking_allowance_px": 4.97261197056883,
+              "zoom": 0.200142353773117
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16157.1208607446,
+              "last_error_px": 99.3207963872555,
+              "peak_follow_speed": 180.315765013523,
+              "phase": 5,
+              "response_ms": 14,
+              "settled_ms": 874,
+              "start_ms": 23002,
+              "tracking_allowance_px": 108.775625172762,
+              "zoom": 4.22026395797729
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2048.20345247598,
+              "last_error_px": 0.323071293876637,
+              "peak_follow_speed": 232.136236572306,
+              "phase": 6,
+              "response_ms": 24,
+              "settled_ms": 343,
+              "start_ms": 27006,
+              "tracking_allowance_px": 6.6324640008973,
+              "zoom": 0.200196012854576
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21813.0764427187,
+              "last_error_px": 125.181218764046,
+              "peak_follow_speed": 296.825961117316,
+              "phase": 7,
+              "response_ms": 13,
+              "settled_ms": 855,
+              "start_ms": 31004,
+              "tracking_allowance_px": 179.060491386433,
+              "zoom": 4.22018766403198
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2097.73827495068,
+              "last_error_px": 0.720526133783551,
+              "peak_follow_speed": 172.945401323515,
+              "phase": 8,
+              "response_ms": 13,
+              "settled_ms": 244,
+              "start_ms": 35008,
+              "tracking_allowance_px": 4.94129725430292,
+              "zoom": 0.200025215744972
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21220.1349723227,
+              "last_error_px": 93.9730451312789,
+              "peak_follow_speed": 178.470687484507,
+              "phase": 9,
+              "response_ms": 14,
+              "settled_ms": 665,
+              "start_ms": 39006,
+              "tracking_allowance_px": 107.662580721569,
+              "zoom": 4.22038459777832
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 1954.15067364565,
+              "last_error_px": 1.26859132749723,
+              "peak_follow_speed": 192.21642365506,
+              "phase": 10,
+              "response_ms": 21,
+              "settled_ms": 302,
+              "start_ms": 43009,
+              "tracking_allowance_px": 5.49189790055166,
+              "zoom": 0.200138792395592
+            }
+          ],
+          "departure_resumes": 1,
+          "distance": 188799.708129998,
+          "fail": 0,
+          "first_response_limit_ms": 250,
+          "peak_speed": 2399.99926757813,
+          "settle_error_px": 20,
+          "settle_limit_ms": 1500,
+          "wheel_events": 384
+        },
+        "wasd": null,
+        "formal_ui": {
+          "active_ms": 45011,
+          "modal_frames": 21,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 33643,
+              "choice": "boundary_cancel",
+              "ms": 33821
+            }
+          ],
+          "wall_ms": 45199
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "v32-cache384-probe-r2-return",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 3307,
+        "max_wait_ms": 216,
+        "min_zoom": 0.200000002980232,
+        "max_zoom": 4.22275543212891,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": {
+          "cases": [
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 3612.28442882723,
+              "last_error_px": 7.40866099906953,
+              "peak_follow_speed": 298.486149262116,
+              "phase": 0,
+              "response_ms": 16,
+              "settled_ms": 620,
+              "start_ms": 3004,
+              "tracking_allowance_px": 8.52817582028302,
+              "zoom": 0.200000002980232
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16205.3966385161,
+              "last_error_px": 70.9472897377418,
+              "peak_follow_speed": 222.457095368631,
+              "phase": 1,
+              "response_ms": 11,
+              "settled_ms": 756,
+              "start_ms": 7008,
+              "tracking_allowance_px": 134.197415411929,
+              "zoom": 4.22019481658936
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2220.90288470961,
+              "last_error_px": 2.38219188425231,
+              "peak_follow_speed": 92.1298312515476,
+              "phase": 2,
+              "response_ms": 13,
+              "settled_ms": 633,
+              "start_ms": 11011,
+              "tracking_allowance_px": 2.6322809321254,
+              "zoom": 0.200134322047234
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 15495.5823749795,
+              "last_error_px": 60.6281953304278,
+              "peak_follow_speed": 113.320201628805,
+              "phase": 3,
+              "response_ms": 15,
+              "settled_ms": 887,
+              "start_ms": 15007,
+              "tracking_allowance_px": 68.3604995711401,
+              "zoom": 4.22046804428101
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2253.01367167587,
+              "last_error_px": 4.55397154918271,
+              "peak_follow_speed": 174.998910051171,
+              "phase": 4,
+              "response_ms": 14,
+              "settled_ms": 632,
+              "start_ms": 19006,
+              "tracking_allowance_px": 4.99996893311024,
+              "zoom": 0.200150310993195
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16219.2359231038,
+              "last_error_px": 99.9986595896917,
+              "peak_follow_speed": 181.564175742473,
+              "phase": 5,
+              "response_ms": 14,
+              "settled_ms": 872,
+              "start_ms": 23006,
+              "tracking_allowance_px": 109.528729913791,
+              "zoom": 4.22039937973022
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2091.85480271965,
+              "last_error_px": 0.346154790314358,
+              "peak_follow_speed": 234.143260443109,
+              "phase": 6,
+              "response_ms": 20,
+              "settled_ms": 382,
+              "start_ms": 27001,
+              "tracking_allowance_px": 6.68980754091758,
+              "zoom": 0.200163707137108
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 22033.7899856274,
+              "last_error_px": 128.309834268439,
+              "peak_follow_speed": 298.617212094875,
+              "phase": 7,
+              "response_ms": 11,
+              "settled_ms": 867,
+              "start_ms": 31003,
+              "tracking_allowance_px": 180.141064928689,
+              "zoom": 4.22027540206909
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 1717.36286806542,
+              "last_error_px": 0.3971435606054,
+              "peak_follow_speed": 172.886241396123,
+              "phase": 8,
+              "response_ms": 17,
+              "settled_ms": 215,
+              "start_ms": 35005,
+              "tracking_allowance_px": 4.93960697063795,
+              "zoom": 0.200187027454376
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21322.4239020196,
+              "last_error_px": 96.2807778176648,
+              "peak_follow_speed": 177.750684858723,
+              "phase": 9,
+              "response_ms": 10,
+              "settled_ms": 669,
+              "start_ms": 39005,
+              "tracking_allowance_px": 107.228238578829,
+              "zoom": 4.22030878067017
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 1959.99202667231,
+              "last_error_px": 0.76240235511068,
+              "peak_follow_speed": 203.947114651039,
+              "phase": 10,
+              "response_ms": 16,
+              "settled_ms": 379,
+              "start_ms": 43013,
+              "tracking_allowance_px": 5.82706050543109,
+              "zoom": 0.200132146477699
+            }
+          ],
+          "departure_resumes": 1,
+          "distance": 183780.699433541,
+          "fail": 0,
+          "first_response_limit_ms": 250,
+          "peak_speed": 2399.99951171875,
+          "settle_error_px": 20,
+          "settle_limit_ms": 1500,
+          "wheel_events": 384
+        },
+        "wasd": null,
+        "formal_ui": {
+          "active_ms": 45006,
+          "modal_frames": 14,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 33649,
+              "choice": "boundary_cancel",
+              "ms": 33820
+            }
+          ],
+          "wall_ms": 45196
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "v32-cache384-probe-r3-return",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 3171,
+        "max_wait_ms": 171,
+        "min_zoom": 0.200000002980232,
+        "max_zoom": 4.22275543212891,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": {
+          "cases": [
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 3797.7777909663,
+              "last_error_px": 7.63527767114755,
+              "peak_follow_speed": 298.549732328132,
+              "phase": 0,
+              "response_ms": 17,
+              "settled_ms": 631,
+              "start_ms": 3003,
+              "tracking_allowance_px": 8.52999247933912,
+              "zoom": 0.200000002980232
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16231.2388710096,
+              "last_error_px": 70.2119754502201,
+              "peak_follow_speed": 223.746800903859,
+              "phase": 1,
+              "response_ms": 14,
+              "settled_ms": 768,
+              "start_ms": 7007,
+              "tracking_allowance_px": 134.97543127689,
+              "zoom": 4.22046184539795
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2214.45878046022,
+              "last_error_px": 2.38267749522146,
+              "peak_follow_speed": 92.010728299539,
+              "phase": 2,
+              "response_ms": 15,
+              "settled_ms": 628,
+              "start_ms": 11011,
+              "tracking_allowance_px": 2.62887799058873,
+              "zoom": 0.200138673186302
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 15413.6399183627,
+              "last_error_px": 58.9730233673254,
+              "peak_follow_speed": 112.882394686547,
+              "phase": 3,
+              "response_ms": 16,
+              "settled_ms": 886,
+              "start_ms": 15000,
+              "tracking_allowance_px": 68.0963921934763,
+              "zoom": 4.22007369995117
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2274.50950536043,
+              "last_error_px": 4.47845122335033,
+              "peak_follow_speed": 174.690527223624,
+              "phase": 4,
+              "response_ms": 18,
+              "settled_ms": 623,
+              "start_ms": 19004,
+              "tracking_allowance_px": 4.99115799504903,
+              "zoom": 0.200137928128242
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 16247.0966000948,
+              "last_error_px": 92.4257802076318,
+              "peak_follow_speed": 178.339042633703,
+              "phase": 5,
+              "response_ms": 8,
+              "settled_ms": 845,
+              "start_ms": 23000,
+              "tracking_allowance_px": 107.583165863163,
+              "zoom": 4.22030448913574
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2123.21059096602,
+              "last_error_px": 0.42684326807921,
+              "peak_follow_speed": 226.872044186668,
+              "phase": 6,
+              "response_ms": 17,
+              "settled_ms": 353,
+              "start_ms": 27007,
+              "tracking_allowance_px": 6.48205850192357,
+              "zoom": 0.200146779417992
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21575.962632291,
+              "last_error_px": 128.450598689305,
+              "peak_follow_speed": 297.244753446713,
+              "phase": 7,
+              "response_ms": 17,
+              "settled_ms": 845,
+              "start_ms": 31013,
+              "tracking_allowance_px": 179.313128184132,
+              "zoom": 4.22043228149414
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 2099.93266249658,
+              "last_error_px": 0.801336681862722,
+              "peak_follow_speed": 175.967836443989,
+              "phase": 8,
+              "response_ms": 11,
+              "settled_ms": 281,
+              "start_ms": 35003,
+              "tracking_allowance_px": 5.02765254474613,
+              "zoom": 0.200022608041763
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 21283.2351028116,
+              "last_error_px": 95.1728570394334,
+              "peak_follow_speed": 178.705565478169,
+              "phase": 9,
+              "response_ms": 14,
+              "settled_ms": 662,
+              "start_ms": 39011,
+              "tracking_allowance_px": 107.804271053515,
+              "zoom": 4.22048807144165
+            },
+            {
+              "excess_error_px": 0.0,
+              "initial_error_px": 1656.96700801724,
+              "last_error_px": 1.48787844013987,
+              "peak_follow_speed": 186.916419130707,
+              "phase": 10,
+              "response_ms": 14,
+              "settled_ms": 295,
+              "start_ms": 43014,
+              "tracking_allowance_px": 5.34046919759938,
+              "zoom": 0.200496464967728
+            }
+          ],
+          "departure_resumes": 1,
+          "distance": 186686.638016382,
+          "fail": 0,
+          "first_response_limit_ms": 250,
+          "peak_speed": 2399.99951171875,
+          "settle_error_px": 20,
+          "settle_limit_ms": 1500,
+          "wheel_events": 384
+        },
+        "wasd": null,
+        "formal_ui": {
+          "active_ms": 45007,
+          "modal_frames": 20,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 33773,
+              "choice": "boundary_cancel",
+              "ms": 33944
+            }
+          ],
+          "wall_ms": 45194
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "final-v32-384-r1-sweep",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 3971,
+        "max_wait_ms": 206,
+        "min_zoom": 0.200136706233025,
+        "max_zoom": 5.0,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": null,
+        "wasd": {
+          "distance": 164430.870719671,
+          "mode": "sweep",
+          "peak_speed": 2399.99975585938,
+          "segments": [
+            {
+              "keys": [
+                68
+              ],
+              "ms": 1003,
+              "position": [
+                -3997.73291015625,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 4015,
+              "position": [
+                -1578.537109375,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 7006,
+              "position": [
+                -15665.255859375,
+                -13272.017578125
+              ]
+            },
+            {
+              "keys": [],
+              "ms": 9327,
+              "position": [
+                -11171.646484375,
+                -14516.8564453125
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 11504,
+              "position": [
+                -11171.646484375,
+                -14784.4248046875
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 12204,
+              "position": [
+                -11171.646484375,
+                -15009.6806640625
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 15207,
+              "position": [
+                -11171.646484375,
+                -3265.05834960938
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 18206,
+              "position": [
+                -6354.009765625,
+                -7369.2333984375
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 21219,
+              "position": [
+                -15348.345703125,
+                2938.79663085938
+              ]
+            },
+            {
+              "keys": [
+                83,
+                68
+              ],
+              "ms": 24206,
+              "position": [
+                -14797.10546875,
+                -8610.5439453125
+              ]
+            },
+            {
+              "keys": [
+                68
+              ],
+              "ms": 27208,
+              "position": [
+                -7100.4130859375,
+                -913.848693847656
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 30225,
+              "position": [
+                1082.78723144531,
+                -811.13330078125
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 33213,
+              "position": [
+                -13461.7216796875,
+                -811.13330078125
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 36210,
+              "position": [
+                -11171.5517578125,
+                -15608.341796875
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 39207,
+              "position": [
+                -11171.44921875,
+                -3704.78735351563
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 42204,
+              "position": [
+                -6374.94384765625,
+                -7768.68701171875
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 45210,
+              "position": [
+                -15357.35546875,
+                2469.78051757813
+              ]
+            }
+          ]
+        },
+        "formal_ui": {
+          "active_ms": 45011,
+          "modal_frames": 392,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 9300,
+              "choice": "low_alt_gun_dodge",
+              "ms": 10117
+            }
+          ],
+          "wall_ms": 47220
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "final-v32-384-r2-sweep",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 4400,
+        "max_wait_ms": 200,
+        "min_zoom": 0.20013153553009,
+        "max_zoom": 5.0,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": null,
+        "wasd": {
+          "distance": 165154.848437339,
+          "mode": "sweep",
+          "peak_speed": 2399.99975585938,
+          "segments": [
+            {
+              "keys": [
+                68
+              ],
+              "ms": 1008,
+              "position": [
+                -3997.73291015625,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 4010,
+              "position": [
+                -1606.26342773438,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 7000,
+              "position": [
+                -15438.869140625,
+                -13273.1484375
+              ]
+            },
+            {
+              "keys": [],
+              "ms": 9322,
+              "position": [
+                -11171.2890625,
+                -14504.8955078125
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 11507,
+              "position": [
+                -11171.2890625,
+                -14785.4775390625
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 12212,
+              "position": [
+                -11171.2890625,
+                -15016.5615234375
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 15218,
+              "position": [
+                -11171.154296875,
+                -3118.701171875
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 18211,
+              "position": [
+                -6341.7001953125,
+                -7126.6865234375
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 21212,
+              "position": [
+                -15342.8994140625,
+                2824.2412109375
+              ]
+            },
+            {
+              "keys": [
+                83,
+                68
+              ],
+              "ms": 24211,
+              "position": [
+                -14787.0751953125,
+                -8745.9111328125
+              ]
+            },
+            {
+              "keys": [
+                68
+              ],
+              "ms": 27208,
+              "position": [
+                -6479.8603515625,
+                -438.709655761719
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 30212,
+              "position": [
+                1113.11401367188,
+                64.1441345214844
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 33211,
+              "position": [
+                -13452.26953125,
+                64.1441345214844
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 36209,
+              "position": [
+                -11171.4443359375,
+                -15600.7001953125
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 39211,
+              "position": [
+                -11171.4443359375,
+                -3699.35791015625
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 42217,
+              "position": [
+                -6360.833984375,
+                -7801.6591796875
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 45211,
+              "position": [
+                -15355.4833984375,
+                2458.38623046875
+              ]
+            }
+          ]
+        },
+        "formal_ui": {
+          "active_ms": 45008,
+          "modal_frames": 443,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 9300,
+              "choice": "dogfight",
+              "ms": 10111
+            }
+          ],
+          "wall_ms": 47220
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      },
+      {
+        "run": "final-v32-384-r3-sweep",
+        "wrapper_exit": 0,
+        "fail": 0,
+        "package": "F:/AGL/resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+        "frames": 4475,
+        "max_wait_ms": 146,
+        "min_zoom": 0.200134694576263,
+        "max_zoom": 5.0,
+        "hidden": 0,
+        "missing": 0,
+        "uncovered": 0,
+        "unqualified": 0,
+        "budget": 0,
+        "camera_lag": 0,
+        "composite_lag": 0,
+        "old_png": 0,
+        "space_return": null,
+        "wasd": {
+          "distance": 165899.839011088,
+          "mode": "sweep",
+          "peak_speed": 2399.99975585938,
+          "segments": [
+            {
+              "keys": [
+                68
+              ],
+              "ms": 1002,
+              "position": [
+                -3997.73291015625,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 4004,
+              "position": [
+                -1604.8203125,
+                -15061.16015625
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 7002,
+              "position": [
+                -15630.3662109375,
+                -13272.3212890625
+              ]
+            },
+            {
+              "keys": [],
+              "ms": 9688,
+              "position": [
+                -11171.3681640625,
+                -15270.00390625
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 11869,
+              "position": [
+                -11171.3681640625,
+                -15405.4453125
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 12209,
+              "position": [
+                -11171.3681640625,
+                -15469.6015625
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 15218,
+              "position": [
+                -11171.23046875,
+                -3601.36962890625
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 18207,
+              "position": [
+                -6361.28369140625,
+                -7731.49169921875
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 21206,
+              "position": [
+                -15346.0810546875,
+                2573.6337890625
+              ]
+            },
+            {
+              "keys": [
+                83,
+                68
+              ],
+              "ms": 24202,
+              "position": [
+                -14782.8076171875,
+                -9011.400390625
+              ]
+            },
+            {
+              "keys": [
+                68
+              ],
+              "ms": 27202,
+              "position": [
+                -6421.7998046875,
+                -650.393493652344
+              ]
+            },
+            {
+              "keys": [
+                65
+              ],
+              "ms": 30204,
+              "position": [
+                1082.36022949219,
+                -152.857376098633
+              ]
+            },
+            {
+              "keys": [
+                87
+              ],
+              "ms": 33207,
+              "position": [
+                -13430.736328125,
+                -152.857376098633
+              ]
+            },
+            {
+              "keys": [
+                83
+              ],
+              "ms": 36204,
+              "position": [
+                -11171.4765625,
+                -15599.02734375
+              ]
+            },
+            {
+              "keys": [
+                87,
+                68
+              ],
+              "ms": 39205,
+              "position": [
+                -11171.4765625,
+                -3785.56884765625
+              ]
+            },
+            {
+              "keys": [
+                83,
+                65
+              ],
+              "ms": 42203,
+              "position": [
+                -6350.4111328125,
+                -7861.80078125
+              ]
+            },
+            {
+              "keys": [
+                87,
+                65
+              ],
+              "ms": 45204,
+              "position": [
+                -15353.630859375,
+                2405.31127929688
+              ]
+            }
+          ]
+        },
+        "formal_ui": {
+          "active_ms": 45004,
+          "modal_frames": 504,
+          "returned_to_gameplay": true,
+          "selections": [
+            {
+              "active_ms": 9667,
+              "choice": "cockpit_armor",
+              "ms": 10474
+            }
+          ],
+          "wall_ms": 47212
+        },
+        "combat": {
+          "actors_start": 36,
+          "impact_peak": 7,
+          "launched": true,
+          "shell_peak": 10
+        },
+        "stream_released": true,
+        "performance_sample": false
+      }
+    ]
+  },
+  "failure_investigation": {
+    "status": "hypotheses_tested_v30_v31_modal_root_cause_confirmed_v32",
+    "source": "autogame-v29-20261028-summary.json",
+    "cache_mib": 192,
+    "display_mib": 96,
+    "triangle_limit": 240000,
+    "default_enabled": false,
+    "failures": [
+      {
+        "run": "r1-sweep",
+        "cause": "zoom-out endpoint missed after consecutive HLOD handoffs",
+        "max_wait_ms": 335,
+        "deadline_ms": 5000,
+        "actual_zoom_at_deadline": 0.217467993497849,
+        "target_zoom": 0.2,
+        "first_handoff_catalog": 6,
+        "first_handoff_pages": 9,
+        "first_handoff_bytes": 44361608,
+        "second_handoff_pages": 2,
+        "second_handoff_bytes": 87623704
+      },
+      {
+        "run": "r1-return",
+        "phase": 8,
+        "initial_distance_px": 29.5185224809047,
+        "minimum_required_distance_px": 100,
+        "response_ms": 23,
+        "original_hypothesis": "fixed WASD direction reached clamped map boundary and did not move away from player",
+        "original_hypothesis_status": "insufficient: boundary-aware input still failed in all three v31 returns",
+        "confirmed_cause": "modal UI released WASD; unchanged phase did not resend key after input reopened",
+        "evidence": "final-v31-192-matrix-1.json: phase 8 initial distance 12-16 px in three runs, coinciding with modal selection; v32 restores held input and retains original 100 px gate"
+      }
+    ],
+    "candidate_hypothesis": "At 192 MiB, allow full 96 MiB guarded handoff retry during rapid zoom when two display cuts fit; keep union budget verification. Choose return setup direction using actual map bounds and forecast zoom.",
+    "comparison": "Same 192 MiB cache, 96 MiB display, combat, camera and unchanged assertion thresholds; only wide handoff toggle differs."
+  },
+  "diagnostic_trace": {
+    "source": "bench/results/tokyo_volume_c2_20261028_054639.txt",
+    "source_sha256": "952bf3ec28c512c130f3d08ab5ba4fdd95df198f7bac689978e141005ca8238a",
+    "source_field": "tokyo_wall_trace.slow_records",
+    "summary": "v31-fast-wall-trace-summary.json",
+    "note": "v31 带诊断的慢帧摘录；v32 只修测试驱动。不得混入 final-v32 无追踪三轮统计，也不能相加父子桶或推定 GPU 原因。",
+    "frames": [
+      {
+        "frame": 329,
+        "wall_us": 27320,
+        "physics_ticks": 2,
+        "events": {
+          "event_log": 8,
+          "missile_hit": 1,
+          "radar_slice": 1,
+          "tokyo_cell_request": 1,
+          "tokyo_cell_take": 1,
+          "tokyo_texture_upload": 1
+        },
+        "selected_cpu_buckets_us": {
+          "aircraft_phys": 6852,
+          "tokyo_map_plan_submit": 1086,
+          "tokyo_map_process": 1657,
+          "tokyo_map_stream": 1906,
+          "tokyo_map_stream.texture_upload": 1180,
+          "unit_status_overlay": 777
+        }
+      },
+      {
+        "frame": 334,
+        "wall_us": 26132,
+        "physics_ticks": 2,
+        "events": {
+          "audio_sfx": 1,
+          "bullet_damage_gun": 4,
+          "event_log": 8,
+          "missile_hit": 1,
+          "radar_slice": 1,
+          "tokyo_cell_take": 1,
+          "tokyo_texture_upload": 2
+        },
+        "selected_cpu_buckets_us": {
+          "aircraft_phys": 6824,
+          "tokyo_map_plan_submit": 1161,
+          "tokyo_map_process": 1732,
+          "tokyo_map_stream": 2262,
+          "tokyo_map_stream.texture_upload": 1171,
+          "unit_status_overlay": 631
+        }
+      },
+      {
+        "frame": 330,
+        "wall_us": 21020,
+        "physics_ticks": 1,
+        "events": {
+          "event_log": 3,
+          "radar_tick": 1,
+          "tokyo_cell_request": 1,
+          "tokyo_cell_take": 1,
+          "tokyo_texture_upload": 1
+        },
+        "selected_cpu_buckets_us": {
+          "aircraft_phys": 3474,
+          "tokyo_map_process": 588,
+          "tokyo_map_stream": 1902,
+          "tokyo_map_stream.texture_upload": 1204,
+          "unit_status_overlay": 1824
+        }
+      },
+      {
+        "frame": 336,
+        "wall_us": 20767,
+        "physics_ticks": 1,
+        "events": {
+          "bullet_damage_gun": 4,
+          "event_log": 4,
+          "missile_hit": 1,
+          "tokyo_texture_upload": 1
+        },
+        "selected_cpu_buckets_us": {
+          "aircraft_phys": 3115,
+          "tokyo_map_process": 479,
+          "tokyo_map_stream": 2704,
+          "tokyo_map_stream.texture_upload": 2447,
+          "unit_status_overlay": 1304
+        }
+      },
+      {
+        "frame": 326,
+        "wall_us": 19137,
+        "physics_ticks": 1,
+        "events": {
+          "event_log": 3,
+          "radar_slice": 1,
+          "tokyo_cell_request": 1,
+          "tokyo_cell_take": 1,
+          "tokyo_texture_upload": 1
+        },
+        "selected_cpu_buckets_us": {
+          "aircraft_phys": 3217,
+          "tokyo_map_process": 529,
+          "tokyo_map_stream": 1639,
+          "tokyo_map_stream.texture_upload": 1070,
+          "unit_status_overlay": 662
+        }
+      }
+    ]
+  }
+}

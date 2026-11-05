@@ -37,18 +37,15 @@ func _process(_delta: float) -> void:
 	_draw_node.queue_redraw()
 
 func _on_draw() -> void:
-	if not _zones or _zones.selected_id == &"" or not _camera or not _player:
+	if not _zones or _zones.selected_id == &"" or not is_instance_valid(_camera) or not is_instance_valid(_player):
 		return
 	var zone := _zones.get_zone_by_id(_zones.selected_id)
 	if zone.is_empty():
 		return
 	var target_world: Vector2 = zone["center"]
 	var vp := get_viewport().get_visible_rect().size
-	var cam_pos := _camera.global_position
-	var zoom := _camera.zoom
-
-	# 世界坐标 → 屏幕坐标（相机为中心）
-	var screen_pos := (target_world - cam_pos) * zoom + vp * 0.5
+	# 使用真实画布，包含相机旋转、offset/shake 与窗口缩放。
+	var screen_pos := _draw_node.get_global_transform_with_canvas().affine_inverse() * _camera.get_canvas_transform() * target_world
 
 	# 在屏幕内就不画箭头（用 64 px 边界宽松判断，避免抖动）
 	var inside_margin := 64.0

@@ -3,7 +3,7 @@ id: zone-reward-docking
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 12
+spec_version: 13
 owner: noelu
 depends_on: [aircraft-evolution-tree, evolution-attribute-gates, inrun-weapon-inventory, survivor-loop, event-system]
 reconstruction_complete: false
@@ -11,8 +11,9 @@ reconstruction_complete: false
 
 # 战区奖励与停靠结算 —— 机场/航母着陆结算 + 四类奖励 + 逃跑护卫
 
-> 玩家视角：打完战区不再"弹窗发奖"——全队当场满血，然后你得**飞到停靠点减速降落**才能
-> 结算升级/进化；奖励本身是**有形的战场实体**：一艘南边开进来的友军航母、王牌旁边爆出的
+> 玩家视角：战区奖励攻克即领；飞到机场/航母减速停靠后，在**整备与增加僚机之间二选一**。
+> 整备有可用进化时必须进化并全队满血；无可用进化时保留机体、全队满血并装备可领取的专属技。
+> 增加僚机不维修。奖励本身是**有形的战场实体**：一艘南边开进来的友军航母、王牌旁边爆出的
 > 新僚机、或挂上机的追加武器。Tab 地图上每个战区**预先亮出它给什么**，难度越高、王牌
 > 等级越高，给得越好。
 
@@ -66,10 +67,20 @@ reconstruction_complete: false
 | 机场位置 | ✅ **固定 3 处真实机场**（用户拍板）：**羽田**（湾西北，手画 HANEDA_AIRPORT 多边形质心）/ **木更津驻屯地**（烘焙 aero 质心 ≈(6844, 2381)）/ **調布飛行場**（≈(-10434, -12864)）。坐标实现时从地图数据取质心。**南半图无机场 = 航母奖励的价值区**（设计协同：南部战区打完时航母最香） |
 | 机场次数（**2026-07-23 修订**） | ✅ **一次性使用**（用户拍板）：每个机场停靠一次即失效——标记从主图 + Tab **消失**、不再判定停靠。全图 3 机场 = 3 次陆上结算机会（+ 航母 2 次 = 全局 5 次）。**机场的 ALLY 防空驻军**（`_spawn_airfield_garrison` 部署的 SAM+AA）是**独立实体，原地保留**，不随停靠点消失（"友军保留"）。carrier **不受影响**（走自己的限 2 次登舰机制）。设计后果见 §9.1 |
 | 着陆判定 | 进入停靠圈（半径 ~600 px）+ **减速至 ≤ 着陆阈值**持续 **1.0 s** → 判定"已停靠"。阈值**动态随机型** = `max(300 km/h, 失速基数 × 1.3)`（2026-07-06 playtest 修复：原固定 250 压在玩家机 1G 失速地板 ~252 之下物理减不到；提示文本跟随实际阈值）。**2026-07-24 修订：速度比较用 g 中和当量**（实测速度 ÷ `g^0.4`）而非绝对速度——飞机转弯拉 G 时物理最低速被抬到角点速度（500~790 km/h），绝对 300 判定使绕圈进近永远够不到；g 中和把"已减到本机当前 G 最低速"折回 1G 当量（≈231）再比阈值，直线/绕圈进近都能触发。超阈时进度不清零、改快速衰减（`HOLD_DECAY_MULT`）防 G 抖动打回原点。1G 直飞时 `g^0.4=1`，行为与旧实现一致 |
-| 停靠后 | **全队满血** + 打开进化面板（达门槛时可选进化）。战区奖励已攻克即领，不在此领（2026-07-24 修订） |
-| 结算范围 | ✅ 停靠只接管**进化 + 回血**；战区奖励改攻克即领（§2.1）；XP 升级流程维持现状不动（用户确认；按 RTS 方向废三选一的收束另启工单） |
+| 停靠后 | 只打开决策台，不提前回血或发僚机；成功提交后按下方互斥规则结算。战区奖励已攻克即领，不在此领 |
+| 结算范围 | 停靠接管**整备 / 增加僚机二选一**；战区奖励与 XP 升级流程不变 |
 | UI 引导 | 停靠圈上方显示按当前机型计算的动态着陆阈值，禁止写死 250 km/h |
 | 时间语义 | 停靠结算 UI 打开期间暂停（与现结算一致），飞行赶路**不暂停**（路程本身是代价） |
+
+#### 2.2.1 停靠平衡更新（2026-10-24 用户确认）
+
+- 适用于机场、友军航母和 F6 临时机场；每次只能成功结算一次，重复 signal 或关闭回调不能再次授予。
+- **整备**：当前机体至少有一个直接出口同时满足等级与三轴门槛时，选择其中一架进化，全队跟随换型；完成武器、技能与里程碑重放后，将所有存活直属小队飞机恢复到各自最终最大生命值，不发僚机或本次专属技能。
+- **无可用进化时的整备替代**：等级不足、三轴不足或路线尽头，都只提供“保留机体＋完整维修＋专属技能”；全队存活机恢复至最大生命值。当前机体专属技仍遵守已有功勋许可、已装备和空占位约束，不满足授予条件时明确说明并允许单独完整维修；不新增或杜撰占位技能。
+- **增加僚机**：选中后增加 1 架当前机型僚机；原有飞机 HP 不变，不进化，不授予本次专属技能。仍需 `dock_wingman` 已购且存活小队不足 9 架；不可用时禁用并说明原因，不能降级发武器。
+- “不满足进化标准”判断全部直接出口，而非当前鼠标选中的节点。只要存在一个可进化出口，就不能改领维修专属分支。
+- 出击前既有地勤/专属起飞效果仍按原定义触发一次；`sig_fa18e` 的生命上限＋10及同步 HP＋10属于既有技能，不是增加僚机附送维修。
+- UI 始终只有两个互斥操作：整备（按资格显示进化或维修）与增加僚机；取消先领取技能再进化、先发僚机再选进化和无决策继续的旧路径。
 
 ### 2.3 战区奖励表（预分配、Tab 可见、质量随难度与 ACE 等级）
 
@@ -88,7 +99,7 @@ reconstruction_complete: false
 | 项 | 规则 |
 |---|---|
 | 入场 | 领取该奖励后，航母从**地图南边**驶入北上一段停泊（team 0，无护卫舰，CIWS 自卫，可被击沉） |
-| 功能 | = 海上停靠点：着舰（§2.2 同判定）→ 回血 + 进化/升级 |
+| 功能 | = 海上停靠点：着舰（§2.2 同判定）→ 整备或增加僚机二选一（§2.2.1） |
 | 限次 | **全局 2 次登舰**（跨航母累计；被击沉视为机会流失，不补） |
 | 复用 | carrier_ship 资产转 team0 + DockPoint 组件 |
 
@@ -102,9 +113,8 @@ reconstruction_complete: false
   不提升王牌等级，不发战斗等级，不灌经验
 ```
 
-**停靠补给僚机（2026-07-24 新增，用户拍板）**：与上方 roll 奖励**独立**——**每次停靠**
-（机场 / 航母，航母不除外）**额外送 1 架**复制王牌机的僚机入队（`_on_dock_docked`）。满编 9
-则跳过（不降级，纯福利）。机场一次性 3 处 + 航母 2 次登舰 = 停靠僚机来源；叠加 roll 奖励的 +2。
+**停靠补给僚机（2026-10-24 修订）**：与上方 roll 奖励独立，每次停靠可选择增加 1 架当前机型
+僚机，代价是放弃本次整备（进化/维修/专属技能）；不再自动赠送。功勋许可与 9 机上限见 §2.2.1。
 
 ### 2.6 追加武器
 
@@ -135,7 +145,9 @@ reconstruction_complete: false
   航母奖励立即触发航母入场事件
 停靠判定（每帧，仅玩家操控机）:
   in_dock_circle && g中和速度 <= 动态阈值 → 计时 1.0s → docked
-  docked → 全队回血 + 暂停 + 进化结算 UI
+  docked → 暂停 + 整备/增员二选一 UI（此时不回血、不增员）
+  整备 → 有达标出口则进化，否则保留机体并授予可用专属；最后全队完整维修
+  增员 → 增加 1 架同型僚机，原有飞机 HP 不变
 奖励 roll（战区开放时）:
   pool = §2.3 表按难度取权重；carrier 剩余次数==0 → 移出
   roll → 存 zone_data._rewards[id]（沿用现结构，类型从 upgrade dict 扩为 reward dict）
@@ -154,6 +166,12 @@ reconstruction_complete: false
 | 结算 UI | 改（evolution_ui 扩展为停靠结算站） |
 
 ## 5. 验收标准（骨架）
+
+- [x] 2026-10-24：正式停靠信号后 HP/人数不变；进化后全队按最终上限满血且不增员。
+- [x] 等级不足、三轴不足、路线尽头均可维修；有任一可用出口时拒绝维修专属分支。
+- [x] 僚机选择不维修、不换型、不发专属；满编/未购拒绝且不发替代武器。
+- [x] 无许可/已装备/空占位可维修但不重复或虚构技能；跨帧重复提交、关闭、机场/航母限次回归（dock_decision 118/0，含真实退场恢复与成长基准入口）。
+- [x] 两类资格与中英日 12 个界面场景 Visual 验收通过；dock_decision 118/0；默认 all 同步 105 项测试与 lifecycle_gauntlet 终态回归均通过，wrapper 退出 0 且无运行时错误。
 
 - [x] 攻克瞬间即时发放奖励；不回血、不入待领栏、不弹进化 UI
 - [ ] 停靠：圈内减速 ≤ 阈值 1s → 结算 UI；不减速不触发；驶离取消
@@ -190,16 +208,19 @@ reconstruction_complete: false
 | 关注点 | 文件 |
 |---|---|
 | 停靠组件 | `scripts/survivor/dock_point.gd`（DockPoint：判定/绘制/信号；`_process` 速度判定 / `_land_threshold_kmh` 阈值 / `_dock_speed_kmh` g 中和当量速度） |
-| 攻克流程 / 即时领奖分发 / 停靠回血+进化 / 航母召唤 / ACE 僚机 / 武器授予 | `scripts/survivor/survivor_mode.gd`（`_on_zone_mission_completed` / `_grant_reward_now`（攻克即领分发）/ `_on_dock_docked`（回血+进化）/ `_summon_reward_carrier` / `_claim_wingman_reward` / `_claim_weapon_reward` / `_spawn_airfield_docks`） |
+| 攻克流程 / 即时领奖分发 / 停靠回血+进化 / 航母召唤 / ACE 僚机 / 武器授予 | `scripts/survivor/survivor_mode.gd`（`_on_zone_mission_completed` / `_grant_reward_now`（攻克即领分发）/ `_on_dock_docked`（开启选择）/ `_on_settlement_evolution` / `_on_settlement_repair` / `_on_settlement_wingman` / `_repair_docked_squad` / `_dock_decision_available`/ `_summon_reward_carrier` / `_claim_wingman_reward` / `_claim_weapon_reward` / `_spawn_airfield_docks`） |
 | 操控切换（固定号机号，键 N=`squad_slot==N`） | `scripts/survivor/survivor_mode.gd`（`_switch_control_to_slot` / `_aircraft_for_squad_slot` / `_switch_player_to` / `_ensure_player_squad` / `_next_free_squad_slot`） |
 | 奖励 roll | `scripts/survivor/zone_data.gd`（REWARD_KIND_WEIGHTS / `_assign_reward` / `carrier_uses_left`） |
 | Tab 奖励/停靠标记 | `scripts/survivor/tactical_map.gd`（`_draw_dock_markers` + `_draw_one_zone` 奖励行） |
 | 逃跑护卫 | `scripts/survivor/survivor_spawner.gd`（`_spawn_flee_escort` + 两 flee 入口） |
 | 航母资产 | `scripts/naval/carrier_ship.gd` + `resources/naval/carrier_cv.tres` |
-| 结算 UI | `scripts/survivor/evolution_ui.gd`（复用，未改） |
+| 结算 UI | `scripts/survivor/evolution_ui.gd`（`show_offer` / `_confirm_evolution` / `_confirm_repair` / `_confirm_wingman`） |
+| 停靠互斥与生命周期回归 | `scripts/tests/dock_decision_case.gd` / `scripts/tests/dock_decision_runner.gd`；dock_decision 专项并入 lifecycle_gauntlet / all |
 | i18n | `i18n/gameplay.csv` 的 DOCK_* / REWARD_* / CARRIER_* 段 |
 
 ## 8. 变更记录
+
+2026-10-24 / v13：用户确认停靠在进化整备与僚机之间二选一；进化完整维修，只有无可用进化时以完整维修＋当前机专属技能替代。保留许可、上限和技能自身起飞效果；专属领取规则同步至 aircraft-signature-progression。
 
 | 日期 | spec_version | 改动 |
 |---|---|---|

@@ -20,6 +20,7 @@ func run() -> void:
 	_test_bomber_escort_xp_reward()
 	_test_failed_zone_contract()
 	_test_bomber_escort_package_geometry()
+	_test_bomber_player_priority()
 	_test_rotorcraft_translation()
 	_test_special_projectile_contracts()
 	_test_airburst_aim_and_effectiveness()
@@ -237,7 +238,7 @@ func _test_bomber_escort_xp_reward() -> void:
 	_check(ZoneData.bomber_escort_xp_reward(2) == 300, "二星护送固定奖励 300 XP")
 	_check(ZoneData.bomber_escort_xp_reward(3) == 450, "三星护送固定奖励 450 XP")
 	var i18n_ready := true
-	var pursuit_phrase := {"zh": "后方", "en": "behind", "ja": "後方"}
+	var approach_phrase := {"zh": "前方及侧翼", "en": "ahead and the flanks", "ja": "前方および側面"}
 	for locale in ["zh", "en", "ja"]:
 		var gameplay_translation := load(
 			"res://i18n/gameplay.%s.translation" % locale) as Translation
@@ -250,7 +251,7 @@ func _test_bomber_escort_xp_reward() -> void:
 			and not str(gameplay_translation.get_message("ZONE_BOMBER_INTERCEPTORS")).is_empty() \
 			and not str(gameplay_translation.get_message("ZONE_BOMBER_FORMATION_ABORTED_FMT")).is_empty() \
 			and str(radio_translation.get_message("RADIO_BOMBER_ESCORT_INTERCEPT")).contains( \
-				String(pursuit_phrase[locale])) \
+				String(approach_phrase[locale])) \
 			and not str(radio_translation.get_message("RADIO_BOMBER_ESCORT_INTERCEPT")).contains("玩家") \
 			and not str(radio_translation.get_message("RADIO_BOMBER_ESCORT_INTERCEPT")).to_lower().contains("player") \
 			and not str(radio_translation.get_message("RADIO_BOMBER_ESCORT_INTERCEPT")).contains("プレイヤー") \
@@ -448,35 +449,22 @@ func _test_bomber_escort_package_geometry() -> void:
 	_check(is_equal_approx(SurvivorSpawner.BOMBER_INTERCEPT_FIRE_CONE_DEG, 10.0)
 			and SurvivorSpawner.BOMBER_INTERCEPT_BURST_COUNT == 16,
 		"任务 J-7 使用 10°/16 发真实机炮火力纪律")
-	var entered_center := MapBoundary.clamp_inside(entry + flight_dir * 1800.0, 1.0)
-	var intercept_positions := SurvivorSpawner.bomber_pursuit_spawn_positions(
-		entered_center, flight_dir, 6)
-	var lateral := Vector2(-flight_dir.y, flight_dir.x)
-	var has_left := false
-	var has_right := false
-	var all_behind := true
-	for pos in intercept_positions:
-		var offset := pos - entered_center
-		var side_offset := offset.dot(lateral)
-		has_left = has_left or side_offset < -SurvivorSpawner.BOMBER_PURSUIT_LATERAL_PX + 0.1
-		has_right = has_right or side_offset > SurvivorSpawner.BOMBER_PURSUIT_LATERAL_PX - 0.1
-		all_behind = all_behind and offset.dot(flight_dir) \
-			<= -SurvivorSpawner.BOMBER_PURSUIT_REAR_STANDOFF_PX + 0.1
-	_check(intercept_positions.size() == 6 and has_left and has_right and all_behind,
-		"首批响应队全部位于轰炸编队实时航迹后方，并以两列追击阵位接近")
-	_check(not ZoneMission.bomber_response_should_launch(0.059) \
-			and ZoneMission.bomber_response_should_launch(0.06),
-		"轰炸机先飞完 6% 航程，响应队才允许从后方开始追击")
-	var reserve_center := first_route[0].lerp(first_route[2], 0.40)
-	var reserve_positions := SurvivorSpawner.bomber_pursuit_spawn_positions(
-		reserve_center, flight_dir, 3)
-	var reserve_all_behind := true
-	for pos in reserve_positions:
-		reserve_all_behind = reserve_all_behind \
-			and (pos - reserve_center).dot(flight_dir) \
-				<= -SurvivorSpawner.BOMBER_PURSUIT_REAR_STANDOFF_PX + 0.1
-	_check(reserve_positions.size() == 3 and reserve_all_behind,
-		"40% 无人护送增援也从轰炸编队实时后方追上，不在前方凭空截断")
+	for zid in ZoneMission.BOMBER_ESCORT_ROUTE_SLOT_IDS:
+		var plan := ZoneMission.build_bomber_escort_route(zid, player_pos)
+		var path: PackedVector2Array = plan["route"]
+		var direction := (path[2] - path[0]).normalized()
+		for wave in range(3):
+			var center := path[0].lerp(path[2], 0.45)
+			var slots := SurvivorSpawner.bomber_intercept_spawn_positions(center, direction, 8, wave)
+			var valid := slots.size() == 8
+			for slot in slots:
+				var offset := slot - center
+				valid = valid and offset.dot(direction) > 0.0 					and offset.length() >= SurvivorSpawner.BOMBER_INTERCEPT_STANDOFF_PX
+				if wave > 0:
+					valid = valid and absf(direction.cross(offset.normalized())) > 0.7
+			_check(valid, "%s 第 %d 批从前方／侧前方至少 9000px 接近" % [zid, wave])
+	_check(not ZoneMission.bomber_response_should_launch(0.059) 			and ZoneMission.bomber_response_should_launch(0.06),
+		"轰炸机先飞完界内 6% 航程，响应队才开始迎击")
 	_check(not ZoneMission.bomber_response_weapons_should_arm(0.319) \
 			and ZoneMission.bomber_response_weapons_should_arm(0.32),
 		"动态响应队在航程 32% 前保持武器冷却，过线才允许真实开火")
@@ -484,9 +472,41 @@ func _test_bomber_escort_package_geometry() -> void:
 			and ZoneMission.should_abort_bomber_escort(0.58, false) \
 			and not ZoneMission.should_abort_bomber_escort(0.90, true),
 		"航程 58% 是无人护送确定性中止边界，玩家介入后永久豁免")
-	_check(is_equal_approx(ZoneMission.bomber_route_progress(first_route,
-		first_route[0].lerp(first_route[2], 0.58)), 0.58),
-		"无人护送中止读取真实航线投影进度而非任务计时猜测")
+	# 取核心边线上的真实交点，逐条覆盖斜向航线。
+	for zid in ZoneMission.BOMBER_ESCORT_ROUTE_SLOT_IDS:
+		var plan := ZoneMission.build_bomber_escort_route(zid, player_pos)
+		var path: PackedVector2Array = plan["route"]
+		var outside := path[0]
+		var inside := path[2]
+		for step in range(24):
+			var mid := outside.lerp(inside, 0.5)
+			if MapBoundary.is_in_extension_zone(mid):
+				outside = mid
+			else:
+				inside = mid
+		_check(ZoneMission.bomber_route_progress(path, outside) < 0.0001
+				and is_equal_approx(ZoneMission.bomber_route_progress(path, inside.lerp(path[2], 0.58)), 0.58),
+				"%s 场外航段不消耗护送与中止窗口" % zid)
+	var escort_zone := ZoneMission.new()
+	var shooter := Aircraft.new()
+	shooter._fire_cooldown = INF
+	shooter._missile_cooldown = INF
+	var run := {"route_progress": 0.8, "interceptors": [shooter]}
+	shooter.position = Vector2(MapBoundary.CORE_HALF_PX + 10.0, 0)
+	escort_zone._update_bomber_response_fire(run, 60.0)
+	shooter.position = Vector2.ZERO
+	escort_zone._update_bomber_response_fire(run, 80.0)
+	escort_zone._update_bomber_response_fire(run, 104.9)
+	_check(is_inf(shooter._missile_cooldown) and is_inf(shooter._fire_cooldown),
+		"晚到增援在界外与入界后 25 秒内均无法远射")
+	run["route_progress"] = 0.31
+	escort_zone._update_bomber_response_fire(run, 105.0)
+	_check(is_inf(shooter._missile_cooldown), "已入界满 25 秒仍须等轰炸机抵达界内开火线")
+	run["route_progress"] = 0.32
+	escort_zone._update_bomber_response_fire(run, 105.1)
+	_check(shooter._missile_cooldown == 0.0 and shooter._fire_cooldown == 0.0, "两道门均通过才可交战")
+	shooter.free()
+	escort_zone.free()
 
 	var aircraft_list: Array[Aircraft] = []
 	var routes: Array = []
@@ -527,6 +547,59 @@ func _test_bomber_escort_package_geometry() -> void:
 	_check(trigger._should_trigger(&"A", zones.get_zone_by_id(&"A")),
 		"选择护送战区即可触发场外编队入场")
 	trigger.free()
+
+func _test_bomber_player_priority() -> void:
+	var mission := ZoneMission.new()
+	var spawner := SurvivorSpawner.new()
+	var controller := BomberMission.new()
+	var bomber := Aircraft.new()
+	bomber.team = CombatUnit.TEAM_ALLY
+	bomber.params = AircraftParams.new()
+	var player := Aircraft.new()
+	player.team = CombatUnit.TEAM_PLAYER
+	player.position = Vector2(9000.0, 0.0)
+	var shooter := Aircraft.new()
+	shooter.team = CombatUnit.TEAM_HOSTILE
+	var ai := AIController.new()
+	ai.aircraft = shooter
+	shooter._ai_ref = ai
+	shooter.add_child(ai)
+	var route := PackedVector2Array([Vector2.ZERO, Vector2(5000, 0), Vector2(6000, 0)])
+	controller.setup([bomber], [route], route[2], null)
+	mission._spawner = spawner
+	mission._player = player
+	var run := {"interceptors": [shooter]}
+	mission._retarget_bomber_interceptors(run, controller)
+	_check(shooter.combat_target == bomber, "玩家远离时截击机攻击 B-1B")
+	shooter.radar_targets[bomber] = 10.0
+	shooter.secondary_radar_targets[bomber] = 10.0
+	shooter._gun_burst_rounds_left = 4
+	player.position = Vector2(3500.0, 0.0)
+	mission._retarget_bomber_interceptors(run, controller)
+	_check(shooter.combat_target == player and ai._current_target == player
+			and ai._directive.params.get("target") == player,
+		"玩家进入 7km 边界当拍接走 directive／AI／武器目标")
+	_check(shooter.radar_targets.is_empty() and shooter.secondary_radar_targets.is_empty()
+			and shooter._gun_burst_rounds_left == 0,
+		"已锁轰炸机的旧雷达锁与待发机炮梭同时清空")
+	shooter.radar_targets[player] = 2.0
+	mission._retarget_bomber_interceptors(run, controller)
+	_check(shooter.radar_targets.get(player) == 2.0, "目标不变时持续积累锁定，不被每次任务刷新清空")
+	var replacement := Aircraft.new()
+	replacement.team = CombatUnit.TEAM_PLAYER
+	mission._player = replacement
+	mission._retarget_bomber_interceptors(run, controller)
+	_check(shooter.combat_target == replacement, "换帅后按已重绑的当前玩家机接走火力")
+	replacement.position = Vector2(3500.1, 0.0)
+	mission._retarget_bomber_interceptors(run, controller)
+	_check(shooter.combat_target == bomber, "玩家离开护送范围后恢复攻击存活 B-1B")
+	mission.free()
+	spawner.free()
+	controller.free()
+	shooter.free()
+	bomber.free()
+	player.free()
+	replacement.free()
 
 func _zone_center_for_test(zid: StringName) -> Vector2:
 	for zone in ZoneData.ZONES:

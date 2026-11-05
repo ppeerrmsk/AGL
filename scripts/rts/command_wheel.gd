@@ -363,7 +363,8 @@ func _slot_range_circles(id: String) -> Array:
 			var pl := _player_ref()
 			var sc := _squad_cmd_ref()
 			if pl != null and sc != null and sc.params != null:
-				return [{ "center": pl.global_position, "radius": sc.params.auto_engage_radius_px }]
+				var pacing := preload("res://scripts/util/display_pacing.gd")
+				return [{ "center": pacing.display_origin(pl), "radius": sc.params.auto_engage_radius_px }]
 		# 注：火力分配/阵型纪律是模式开关而非空间命令，不画范围圈（用户定稿）
 	return []
 
@@ -438,7 +439,7 @@ func _draw_range_circles(c: Control) -> void:
 	var circles := _slot_range_circles(_hover_slot)
 	if circles.is_empty():
 		return
-	var ct: Transform2D = (_mode as Node2D).get_canvas_transform()
+	var ct: Transform2D = c.get_global_transform_with_canvas().affine_inverse() * (_mode as Node2D).get_canvas_transform()
 	var zoom := ct.get_scale().x
 	for circle in circles:
 		var sp: Vector2 = ct * (circle["center"] as Vector2)
@@ -455,7 +456,8 @@ func _draw_target_highlight(c: Control) -> void:
 	if _press_target.is_destroyed:
 		return
 	var ct: Transform2D = (_mode as Node2D).get_canvas_transform()
-	var sp: Vector2 = ct * _press_target.global_position
+	var pacing := preload("res://scripts/util/display_pacing.gd")
+	var sp: Vector2 = c.get_global_transform_with_canvas().affine_inverse() * ct * pacing.display_origin(_press_target)
 	var t := Time.get_ticks_msec() / 1000.0
 	var pulse := 0.5 + 0.5 * sin(t * 6.0)
 	var r := 34.0 + 4.0 * pulse

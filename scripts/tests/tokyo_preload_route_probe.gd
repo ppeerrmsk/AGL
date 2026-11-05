@@ -9,7 +9,7 @@ func run() -> void:
 	var requested := OS.get_environment("AGL_TOKYO_PRELOAD_OUT")
 	if not requested.is_empty():
 		if DirAccess.dir_exists_absolute(requested) or DirAccess.make_dir_recursive_absolute(requested) != OK:
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_output = requested
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -25,7 +25,7 @@ func run() -> void:
 		_fail += await preload("res://scripts/tests/tokyo_preloaded_ao_review.gd").cancelled_loading(self)
 	var error := tree.change_scene_to_file("res://scenes/building_preloader.tscn")
 	if error != OK:
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	var prepared_ref: WeakRef
 	var overlay_id := 0
@@ -79,12 +79,12 @@ func run() -> void:
 		await tree.process_frame
 	if typeof(battle) != TYPE_OBJECT or not is_instance_valid(battle):
 		push_error("Tokyo preload route did not reach Survivor")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	var session: Variant = prepared_ref.get_ref() if prepared_ref != null else null
 	var map: Variant = battle._map_features._tokyo_volume
 	if typeof(session) != TYPE_OBJECT or not is_instance_valid(session) or not is_instance_valid(map):
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	_fail += int(map.get_instance_id() != overlay_id or map._viewport.get_instance_id() != viewport_id)
 	if stream_id != 0:
@@ -236,7 +236,7 @@ func run() -> void:
 	file.close()
 	print("[Tokyo preload route] same instance=", record.same_overlay, " viewport=", record.same_viewport,
 		" warm_draws=", record.get("rendered_frames", 0), " fail=", _fail)
-	tree.quit(1 if _fail else 0)
+	AudioManager.request_quit(1 if _fail else 0)
 
 
 func _native_capture(map: Node, name_value: String) -> void:

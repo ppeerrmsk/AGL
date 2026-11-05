@@ -16,7 +16,7 @@ func _ready() -> void:
 		if route_script == null or not route_script.can_instantiate() or not route_script.is_isolated_profile(
 				OS.get_executable_path(), OS.get_user_data_dir()):
 			printerr("[Volume route] REFUSED before Survivor: isolated user:// required; actual=", OS.get_user_data_dir())
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 	for key in ["bench_mode", "bench_scenario", "bench_duration", "bench_demo",
 			"boss_debug_mode", "boss_debug_id", "boss_debug_scenario", "boss_debug_node_id", "boss_debug_level"]:
@@ -40,7 +40,7 @@ func _ready() -> void:
 	if automated:
 		var smoke_script: GDScript = load("res://scripts/tests/volume_desert_smoke.gd")
 		if smoke_script == null or not smoke_script.can_instantiate():
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		var smoke: Node = smoke_script.new()
 		get_tree().root.add_child(smoke)

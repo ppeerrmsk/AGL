@@ -155,7 +155,7 @@ func _drive(mode: Node, now: int) -> void:
 			(now - _play_started_ms) / 1000.0, str(over)])
 		_set_phase("done")
 		EventLogger.dump_to_file()
-		get_tree().quit(0)
+		AudioManager.request_quit(0)
 
 
 ## 截帧调度：提前 SHOT_ZOOM_LEAD_S 秒把镜头拉到目标缩放，到点后连续 _shot_count 个呈现帧截图。

@@ -3,6 +3,7 @@ extends RefCounted
 
 const Catalog := preload("res://scripts/experiments/volume_aircraft_catalog.gd")
 const Mounts := preload("res://scripts/experiments/volume_aircraft_mount_catalog.gd")
+const MeshAttachment := preload("res://scripts/tests/test_volume_mesh_attachment.gd")
 const Silhouettes := preload("res://scripts/aircraft_silhouette_catalog.gd")
 
 
@@ -158,6 +159,7 @@ static func run() -> bool:
 		and Catalog.build_runtime_lod("f14", 3) == null,
 		"未知机型或未定义 LOD 级别显式拒绝", failures)
 	_expect(Catalog.metadata_for("unknown").is_empty(), "未知 key 不伪报制作记录", failures)
+	_test_mount_surface_contacts(failures)
 	_test_runtime_mounts(identity_probe, failures)
 	identity_probe.free()
 	var altered := Catalog.metadata_for("f14")
@@ -310,3 +312,35 @@ static func _profile_signature(mesh: ArrayMesh) -> int:
 static func _expect(ok: bool, message: String, failures: Array[String]) -> void:
 	if not ok:
 		failures.append(message)
+
+
+static func _test_mount_surface_contacts(failures: Array[String]) -> void:
+	var contact_count := 0
+	for key in Catalog.supported_keys():
+		var body := Catalog.build_runtime(key)
+		var connection := MeshAttachment.check(body)
+		_expect(connection.is_empty(), "%s 机体承载结构与内置武器：%s" % [key, connection], failures)
+		var faces := body.get_faces()
+		var valid := true
+		for kind in Mounts.AIRCRAFT_KINDS:
+			var slots := Mounts.local_slots(kind, key)
+			valid = valid and slots.size() == Mounts.normalized_slots(kind).size()
+			for slot in slots:
+				var tip: Vector3 = slot + Mounts.CONTACTS[kind]
+				var touched := false
+				# 独立线段-三角形相交；不用布局求解器验证自己。
+				for i in range(0, faces.size(), 3):
+					var hit: Variant = Geometry3D.segment_intersects_triangle(tip - Vector3.UP * 0.10,
+						tip + Vector3.UP * 0.10, faces[i], faces[i + 1], faces[i + 2])
+					if hit != null:
+						touched = true
+						break
+				valid = valid and touched
+				if not touched:
+					failures.append("%s/%s support misses actual hull at %s" % [key, kind, tip])
+				contact_count += 1
+		_expect(valid, "%s 全武器支座与真实机身相交" % key, failures)
+	for kind in Mounts.supported_kinds():
+		var connection := MeshAttachment.check(Mounts.build(kind))
+		_expect(connection.is_empty(), "%s 挂件内部接合：%s" % [kind, connection], failures)
+	print("[Mount surface] airframes=%d contacts=%d failures=%d" % [Catalog.supported_keys().size(), contact_count, failures.size()])

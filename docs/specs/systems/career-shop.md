@@ -3,7 +3,7 @@ id: career-shop
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 9
+spec_version: 10
 owner: 用户（设计）+ Claude（起草）
 depends_on: [career-archive]
 reconstruction_complete: true
@@ -24,7 +24,7 @@ reconstruction_complete: true
 | 第一次击败航母 BOSS 通关 → 解锁 F-14 | F-14 解锁条件 = 档案 `boss.defeats["CARRIER_STRIKE_GROUP"] ≥ 1` | 实时读 CareerArchive 推导，不另存解锁位 |
 | 击败 30 个地面单位 → 解锁 A-6 | A-6E 解锁条件 = 档案 `kills.ground_total ≥ 30` | A-6E 已实装且本就是 T1 攻击线起手；卡片显示进度 (x/30) |
 | 可以花钱购买初始的幻影飞机 | 幻影 III = 生涯商店**恒上架**商品，购入后起手可选 | "钱"= 功勋；无解锁条件，商店开门就卖 |
-| 第一次机场停靠 → 解锁商品"每次停靠得僚机" | 商品 `dock_wingman` 上架条件 = `runs.dockings["airfield"] ≥ 1`；**现有"每次停靠送 1 架僚机"机制改为购入后才生效** | "机场"停靠才上架；商品效果覆盖机场+航母停靠（与现机制一致）。未购入时停靠的回血/进化/航母扣次/机场失效照旧，只是不送僚机 |
+| 第一次机场停靠 → 解锁停靠增员许可 | 商品 `dock_wingman` 上架条件 = `runs.dockings["airfield"] ≥ 1`；购入后可在机场或航母选择增加 1 架同型僚机 | 与本次整备互斥：增员不维修、不进化、不发专属技能；未购时仍可正常选择进化整备或无达标出口时的维修 |
 | 第一次撤离 → 解锁商品"行动时间 +30s" | 商品 `op_time_30s` 上架条件 = `runs.retreats ≥ 1`；效果 = 战区阶段总时长 600s → **630s** | "撤离"沿 career-archive §0 定义 = 出界撤退菜单结算 |
 | （通用） | 商品均为**一次性买断、不可叠加**（v1）；解锁/购买只在正式局生效，bench / boss debug 局一律视为全解锁（保回归确定性 + debug 全谱选机铁律） | 要做可叠加（+60s、送 2 架）再修订 |
 | 把机场 SAM 做进功勋商店，不是技能 | 删除局内 `airfield_sam_network` 升级；新增恒上架商品 `support_airfield_sam`，购入后每局每座解放机场自动追加 SAM×1 | 价格跟战场支援页其它授权统一为 3000；基础 AA×2、战损不重生与敌占编成不变 |
@@ -39,7 +39,7 @@ reconstruction_complete: true
 - **Litmus 自检**（引 DESIGN_PHILOSOPHY）：
   - **#9 局外成长节制**：所有解锁条件都在正常游玩 1~3 局内自然达成（首败航母 / 30 地面击杀 / 首次停靠·撤离）；无数值 buff 商品——僚机与时长都是**内容/节奏**商品；不做 30+ 局进度墙。
   - **#3 信息察觉**：锁定卡只显示解锁条件与进度（机体数据隐藏为 ???——条件本身就是全部信息，数据留给解锁瞬间当奖励揭晓）；商店未上架商品灰条显示上架条件；购买立即反馈（按钮三态 + 功勋徽章跳变）。
-  - **待用户校准注意**：把"停靠送僚机"从默认改为购买后生效，是**削弱新档案的默认体验**（airfield-liberation-zones 的"降落=回血/进化/僚机"三合一少了一环）。这是用户明确要的门控，记录在案。
+  - **停靠取舍**：购买只开放增员选项；2026-10-24 起按用户确认，每次停靠必须在整备与增加僚机之间二选一，不自动赠送僚机。
 - **反模式规避**：不做可叠加数值商品；不把非属性商品塞进 EquipmentPart/装备目录（会被随机货架卷入）；boss debug 链路不受门控（debug 全谱选机铁律）。
 
 ## 2. 数据定义（What —— 全部数值，权威源）
@@ -73,7 +73,7 @@ reconstruction_complete: true
 | `aircraft_f104c` | F-104C 采购案 | **1000** | 恒上架 | F-104C 永久加入可选起手机 |
 | `aircraft_j35f` | J 35F 采购案 | **1000** | 恒上架 | J 35F 永久加入可选起手机 |
 | `aircraft_ea6b` | EA-6B 采购案 | **1000** | 恒上架 | EA-6B 永久加入可选起手机 |
-| `dock_wingman` | 停靠补给僚机 | **3000** | `dockings["airfield"] ≥ 1` | 每次停靠（机场或航母）送 1 架同型僚机（= 门控现有机制） |
+| `dock_wingman` | 停靠补给僚机 | **3000** | `dockings["airfield"] ≥ 1` | 停靠可选择增加 1 架同型僚机，放弃本次整备；规则见 zone-reward-docking §2.2.1 |
 | `op_time_30s` | 行动时间延长 | **2500** | `retreats ≥ 1` | 战区阶段总时长 600s → 630s（永久） |
 | `global_airframe_affinity` | 机体战术适配 | **3000** | 恒上架 | 自然升级有 15% 概率追加当前机体身份轴的普通第四技能卡 |
 | `support_zone_air` | 战区制空支援协定 | **3000** | 恒上架 | 每局首次对空战区 ACTIVE 后生成 2～4 架 F-86 友军 |
@@ -103,7 +103,7 @@ reconstruction_complete: true
 | `METASHOP_ITEM_MIRAGE3_NAME` | 幻影 III 采购案 | Mirage III Procurement | ミラージュ III 調達計画 |
 | `METASHOP_ITEM_MIRAGE3_DESC` | 幻影 III 加入起手机名单（电战线起点） | Adds Mirage III to the starting roster (EW line) | ミラージュ III が初期機体に追加（電子戦系統） |
 | `METASHOP_ITEM_DOCK_WINGMAN_NAME` | 停靠补给僚机 | Docking Wingman Resupply | 着艦補給ウィングマン |
-| `METASHOP_ITEM_DOCK_WINGMAN_DESC` | 每次在机场或航母停靠，补给 1 架同型僚机入队 | Each airfield or carrier docking grants +1 wingman | 飛行場・空母に着くたび僚機 1 機を補充 |
+| `METASHOP_ITEM_DOCK_WINGMAN_DESC` | 停靠时可选择增加 1 架同型僚机，放弃本次整备 | Choose +1 wingman instead of refit at each stop | 停機時に整備を放棄して同型僚機1機を選択可能 |
 | `METASHOP_ITEM_OP_TIME_NAME` | 行动时间延长 | Extended Operation Time | 作戦時間延長 |
 | `METASHOP_ITEM_OP_TIME_DESC` | 战区阶段总时长 +30 秒 | Warzone phase duration +30 seconds | 戦域フェーズ +30 秒 |
 | `METASHOP_ITEM_ZONE_AIR_SUPPORT_NAME` | 战区制空支援协定 | Warzone Air Support Accord | 戦域制空支援協定 |
@@ -122,7 +122,7 @@ reconstruction_complete: true
 | `UNLOCK_HINT_MIRAGE3` | 生涯商店有售 | Available in the Career Shop | キャリアショップで購入可能 |
 
 按钮三态复用机库现成 key：`LOADOUT_BTN_BUY_FMT` / `LOADOUT_BTN_OWNED` / `LOADOUT_BTN_NO_FUNDS`。
-停靠送僚机的入队提示沿用 `DOCK_WINGMAN_GRANTED`。
+停靠选择增员后的入队提示沿用 `DOCK_WINGMAN_GRANTED`。
 
 ## 3. 行为与公式（How）
 
@@ -154,7 +154,7 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 | 商品 | 消费点行为 |
 |---|---|
 | 五项机体采购 | 仅影响选机界面解锁判定（§2.1），局内无消费点 |
-| `dock_wingman` | 停靠结算的"送 1 架僚机"段加门控：`正式局 且 未拥有 → 跳过赠送`；**非正式局（bench/boss debug）视为已拥有**，保旧行为与回归确定性 |
+| `dock_wingman` | 停靠增员按钮与提交入口均检查许可：`正式局 且 未拥有 → 不可选择增员`；**非正式局（bench/boss debug）视为已拥有**，互斥决策照常执行 |
 | `op_time_30s` | 战区阶段时长常量改为运行时变量：开局初始化时 `正式局 且 已拥有 → 时长 += 30`；HUD 倒计时/超时判定/补给时间税 clamp/F6 跳 BOSS 全部读同一变量，自动自洽 |
 | `support_zone_air` | 战区任务执行器在本局首次 `air/squadron` ACTIVE 时查询；正式局未购不生成，非正式局 fail-open；出动后本局不再响应后续同类战区 |
 | `support_zone_ground` | 战区任务执行器在本局首次非机场 `ground` ACTIVE 时查询；正式局未购不生成，非正式局 fail-open；与制空额度分账 |
@@ -175,7 +175,7 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 - **MetaShop**（新 AutoLoad，scripts/meta/，排 CareerArchive 之后）：商品目录常量 + 纯静态判定函数（可注入数值做无头单测）+ owned 持久化 + `buy()` + `owned_changed` 信号。**刻意不用 EquipmentPart/.tres**：这两件商品的效果不在 AircraftParams 上，塞进装备目录会被随机货架 `_roll_shop` 卷入、且 `apply_to()` 够不着消费点。
 - **选机界面**：`PLAYABLE_LIST` 条目补 `id` 字段；新增 `_effective_list()` 在建卡前按解锁判定翻 `dev_locked` 标志 + 附解锁提示文本（boss debug 放行）；卡片按钮 dev_locked 时显示提示文本。
 - **生涯商店 UI**：新场景（主菜单新按钮进入）；复用机库的面板/条目/三态按钮样板与功勋徽章；商品条目 = 名称 + 描述 + 价格按钮；未上架 = 灰条 + 条件文本。
-- **消费点**：停靠结算送僚机段一行门控；战区时长 const → var（顺带修好 F6 调试面板经 `get()` 读常量取 null 的隐性 bug）。
+- **消费点**：停靠增员选择的 UI 与权威提交门控；战区时长 const → var（顺带修好 F6 调试面板经 `get()` 读常量取 null 的隐性 bug）。
 - **与其它账本分工**：MeritLedger=货币；CareerArchive=战绩（解锁条件真源）；AircraftCodex=图鉴迷雾；**MetaShop=局外购买态**（生涯商品 + doctrine 学说；LoadoutLedger 已随槽位配件系统退役，见 spec doctrine-unlocks）。
 
 ## 5. 验收标准（Acceptance / Litmus）
@@ -185,7 +185,7 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 - [ ] boss debug（选图页按 B）链路四卡恒解锁，不受档案影响
 - [ ] 生涯商店：幻影恒上架；首次机场停靠后 dock_wingman 上架（停靠当帧弹上架 toast）；首次撤离后 op_time_30s 上架；未上架商品灰条显示条件
 - [ ] 购买三态正确（可买/买不起/已拥有），扣功勋后主菜单徽章立即刷新；删存档后购买态清零且不被内存写回
-- [ ] 未购 dock_wingman 时停靠：回血/进化/航母扣次/机场失效照旧但**不送僚机**；购入后恢复送 1 架；bench 行为不变
+- [x] 未购 dock_wingman 时增员按钮禁用，整备仍可用；购入后可选择增加 1 架同型僚机，与进化/维修互斥且不发满编替代武器；非正式局继续绕过许可门控
 - [ ] 购入 op_time_30s 后 HUD 倒计时从 10:30 起跳，600s 超时判定/补给 clamp 同步 630s；未购/bench 恒 600s
 - [ ] 战场支援页显示 AWACS + 四项战斗支援；机场 SAM 授权 3000 功勋、可独立永久购买，正式局门控解放机场 SAM，非正式局 fail-open
 - [ ] 性能：全部事件驱动/一次性初始化，无每帧逻辑
@@ -204,7 +204,7 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 - [x] 卡片按钮 dev_locked 显示条件文本（A-6E 进度 FMT）
 
 ### 阶段 3 — 消费点
-- [x] 停靠送僚机门控 + 首次机场停靠上架 toast
+- [x] 停靠增员选择门控 + 首次机场停靠上架 toast
 - [x] WARZONE_PHASE_DURATION const → var + 开局 +30 注入
 
 ### 阶段 4 — 商店 UI
@@ -245,6 +245,8 @@ buy(id)：已拥有 → 拒绝；未上架 → 拒绝；MeritLedger.spend(price)
 | i18n | `i18n/meta.csv`（METASHOP_* / UNLOCK_HINT_*）+ `i18n/interface.csv`（MENU_META_SHOP_*） |
 
 ## 8. 变更记录
+
+2026-10-24 / v10：停靠增员许可改为开放互斥选择；购入后不再在停靠时自动发僚机，整备规则由 zone-reward-docking §2.2.1 统一定义。
 
 | 日期 | spec_version | 改动 |
 |---|---|---|

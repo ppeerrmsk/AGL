@@ -13,6 +13,7 @@ static func sync_team_state(stacks: Dictionary, afterburner_charge: AfterburnerC
 	SkillHooks.sig_fcas_active = int(stacks.get("sig_fcas", 0)) > 0
 	SkillHooks.sig_f35_active = int(stacks.get("sig_f35", 0)) > 0
 	SkillHooks.sig_x90_active = int(stacks.get("sig_x90", 0)) > 0
+	SkillHooks.invasion_algorithm_active = int(stacks.get(SkillHooks.SKILL_INVASION_ALGORITHM, 0)) > 0
 	SkillHooks.hush_active = int(stacks.get("hush", 0)) > 0
 
 
@@ -22,4 +23,5 @@ static func reset_team_state() -> void:
 	SkillHooks.sig_fcas_active = false
 	SkillHooks.sig_f35_active = false
 	SkillHooks.sig_x90_active = false
+	SkillHooks.invasion_algorithm_active = false
 	SkillHooks.hush_active = false

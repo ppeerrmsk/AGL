@@ -4,6 +4,7 @@ var _target: Aircraft
 var _player: Aircraft
 var _hint_target: Aircraft
 var _phase_label: Label
+var _world_overlay: WorldUnitStatusOverlay
 
 
 class RadarHudStub extends SurvivorHUD:
@@ -43,7 +44,8 @@ func _ready() -> void:
 	_target.speed = 300.0
 	_target.heading = 0.25
 	_target.is_mission_target = true
-	_target.global_position = Vector2(900.0, -500.0)
+	# 真正放进镜头，避免输出成功却只截到空背景。
+	_target.global_position = Vector2(75.0, -15.0)
 	add_child(_target)
 	_target.set_physics_process(false)
 	_target.set_process(false)
@@ -58,11 +60,15 @@ func _ready() -> void:
 	_hint_target.set_physics_process(false)
 	_hint_target.set_process(false)
 	_hint_target.set_sensor_contact_hidden(true, 0.0)
+	CombatUnit.all_units.assign([_player, _target, _hint_target])
+	AircraftRenderer.player_ref = _player
 	_add_radar()
 
 	await get_tree().process_frame
 	_phase_label.text = "VISIBLE CONTACT — icon, trail, TGT and precise data"
 	var visible_err := await _save("res://bench/results/sensor_stealth_visible.png")
+	var visible_ok := _world_overlay.has_tactical_canvas(_target) \
+		and get_viewport_rect().has_point(_target.get_global_transform_with_canvas().origin)
 
 	_target.set_sensor_contact_hidden(true)
 	await get_tree().create_timer(0.10).timeout
@@ -74,6 +80,7 @@ func _ready() -> void:
 	var mid_alpha := _target._sensor_contact_visual_alpha
 	_phase_label.text = "FADE OUT 0.25s — body fades; precise overlays already gone"
 	var mid_err := await _save("res://bench/results/sensor_stealth_fade_mid.png")
+	var mid_ok := not _world_overlay.has_tactical_canvas(_target)
 
 	await get_tree().create_timer(0.35).timeout
 	var hidden_ok := _target.is_hidden_from_player_sensors() \
@@ -82,16 +89,24 @@ func _ready() -> void:
 		and not _target._trail_ribbon.visible
 	_phase_label.text = "CONTACT LOST — TGT + ??? in world; anonymous hints remain on radar"
 	var hidden_err := await _save("res://bench/results/sensor_stealth_hidden_tgt.png")
+	hidden_ok = hidden_ok and _world_overlay.has_tactical_canvas(_target) \
+		and not _world_overlay.has_tactical_canvas(_hint_target)
 
 	_target.set_sensor_contact_hidden(false)
 	await get_tree().create_timer(0.18).timeout
 	var reversal_ok := _target._sensor_contact_visual_alpha > 0.0 \
-		and _target._trail_ribbon.is_processing() and _target._trail_ribbon.visible
+		and _target._trail_ribbon.is_processing() and _target._trail_ribbon.visible \
+		and _world_overlay.has_tactical_canvas(_target)
+	_phase_label.text = "CONTACT REACQUIRED — precise overlays fade back with the aircraft"
+	var reversal_err := await _save("res://bench/results/sensor_stealth_reacquired.png")
+	print("[sensor_stealth_visual] on_screen=%s fade_overlays_removed=%s" % [visible_ok, mid_ok])
 	print("[sensor_stealth_visual] mid_alpha=%.3f hidden=%s reversal=%s idempotent=%s errors=%s" % [
 		mid_alpha, str(hidden_ok), str(reversal_ok), str(repeated_state_kept_tween),
 		str([visible_err, mid_err, hidden_err])])
 	AircraftRenderer.player_ref = null
-	get_tree().quit(0 if visible_err == OK and mid_err == OK and hidden_err == OK \
+	CombatUnit.all_units.clear()
+	AudioManager.request_quit(0 if visible_err == OK and mid_err == OK and hidden_err == OK \
+		and reversal_err == OK and visible_ok and mid_ok \
 		and mid_alpha > 0.05 and mid_alpha < 0.95 and hidden_ok and reversal_ok \
 		and repeated_state_kept_tween else 1)
 
@@ -114,6 +129,8 @@ func _add_background() -> void:
 func _add_overlay() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	_world_overlay = WorldUnitStatusOverlay.new()
+	layer.add_child(_world_overlay)
 	var title := Label.new()
 	title.text = "ENEMY SENSOR STEALTH — VISUAL QA"
 	title.position = Vector2(28.0, 24.0)

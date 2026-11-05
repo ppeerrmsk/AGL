@@ -223,6 +223,6 @@ func _status_label_lines(compact: bool) -> PackedStringArray:
 	lines.append(AircraftRenderer.status_hp_text(
 		hp, params.max_hp if params else hp))
 	var dist_m := _status_label_distance_m()
-	lines.append(AircraftRenderer.status_range_text(dist_m))
+	lines.append(AircraftRenderer.status_range_text(dist_m, dist_m >= 0.0))
 	lines.append("MSL %d" % maxi(missiles_remaining, 0))
 	return lines

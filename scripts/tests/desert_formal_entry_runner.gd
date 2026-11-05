@@ -20,7 +20,7 @@ func _run() -> void:
 	var user_path := OS.get_user_data_dir().replace("\\", "/").to_lower()
 	if not user_path.contains("/tmp/desert-volume/r53-formal-profile/"):
 		push_error("formal entry test requires its isolated r53-formal-profile; refusing career writes")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	# 只让测试驱动存活；后续所有场景切换仍由正常菜单/退出回调执行。
 	tree.current_scene = null
@@ -47,7 +47,7 @@ func _run() -> void:
 		_check(desert_index >= 0 and not menu.MAP_LIST[desert_index].preview_only,
 			"normal map selection exposes a playable desert")
 		if desert_index < 0:
-			tree.quit(1)
+			AudioManager.request_quit(1)
 			return
 		menu._on_map_selected(desert_index)
 		menu = null
@@ -352,7 +352,7 @@ func _run() -> void:
 	if report != null:
 		report.store_string("\n".join(_results) + "\n" + result + "\n")
 		report.close()
-	tree.quit(0 if _fail == 0 else 1)
+	AudioManager.request_quit(0 if _fail == 0 else 1)
 
 
 func _wait_scene(path: String) -> bool:
@@ -371,7 +371,7 @@ func _wait_scene(path: String) -> bool:
 		if current != null and current.scene_file_path == path and current.is_node_ready():
 			return true
 	_check(false, "timed out entering " + path)
-	get_tree().quit(1)
+	AudioManager.request_quit(1)
 	return false
 
 

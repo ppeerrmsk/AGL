@@ -6,5 +6,6 @@ static func run(parent: Node) -> int:
 	failures+=await preload("res://scripts/tests/test_tokyo_selection_context.gd").run(parent)
 	failures+=await preload("res://scripts/tests/tokyo_map_plan_worker_case.gd").run(parent)
 	failures+=await preload("res://scripts/tests/tokyo_map_admission_case.gd").run(parent)
+	failures+=await preload("res://scripts/tests/tokyo_metadata_retirement_case.gd").run(parent)
 	print("[Tokyo map planning] fail=",failures)
 	return failures

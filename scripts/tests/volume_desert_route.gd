@@ -81,7 +81,7 @@ func run_route(mode: Node, duration: float) -> void:
 		file.close()
 	print("[Volume route] pass=%d fail=%d selected=%s triggered=%s completed=%s reason=%s; NOT L1 or FPS acceptance" % [
 		_pass, _fail, _selected, _triggered, _completed, reason])
-	get_tree().quit(0 if _fail == 0 else 1)
+	AudioManager.request_quit(0 if _fail == 0 else 1)
 
 
 func _live_mode() -> Node:

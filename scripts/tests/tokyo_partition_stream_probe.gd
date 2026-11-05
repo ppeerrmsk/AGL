@@ -19,6 +19,10 @@ static func read_partition(binding: Variant) -> Dictionary:
 static func run(parent: Node, path: String, expected: String) -> int:
 	if not Contract.sha(expected) or FileAccess.get_sha256(path)!=expected: return 1
 	var input: Variant=JSON.parse_string(FileAccess.get_file_as_string(path))
+	if input is Dictionary and input.has("partition_coverage_probe"):
+		return preload("res://scripts/tests/tokyo_partition_coverage_probe.gd").run(input)
+	if input is Dictionary and input.has("refined_tree_cost"):
+		return preload("res://scripts/tests/tokyo_refined_tree_cost.gd").run(input)
 	if input is Dictionary and input.has("vector_roof_compare"):
 		return await preload("res://scripts/tests/tokyo_vector_roof_compare.gd").run(parent,input)
 	if input is Dictionary and input.has("texture_update_probe"):
@@ -127,6 +131,10 @@ static func run(parent: Node, path: String, expected: String) -> int:
 		return await preload("res://scripts/tests/tokyo_native_ground_review.gd").run(parent,input)
 	if input is Dictionary and input.has("native_massing_cost"):
 		return preload("res://scripts/tests/tokyo_native_massing_cost.gd").run(input)
+	if input is Dictionary and input.has("layout_search"):
+		return preload("res://scripts/tests/tokyo_partition_layout_search.gd").run(input)
+	if input is Dictionary and input.has("lossless_alternatives_package"):
+		return preload("res://scripts/tests/build_tokyo_lossless_alternatives.gd").run(input,expected)
 	if input is Dictionary and input.has("incremental_package"):
 		return preload("res://scripts/tests/stage_tokyo_incremental_package.gd").run(input,expected)
 	if input is Dictionary and input.has("verify_incremental_package"):

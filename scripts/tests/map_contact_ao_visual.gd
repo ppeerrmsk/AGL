@@ -24,7 +24,7 @@ func _run() -> void:
 	var tree := get_tree()
 	if not OS.get_user_data_dir().replace("\\", "/").contains("/tmp/map-contact-ao/profile/"):
 		push_error("AO menu test requires its isolated profile")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	tree.current_scene = null
 	for key in ["bench_mode", "bench_scenario", "bench_duration", "external_volume_experiment"]:
@@ -42,7 +42,7 @@ func _run() -> void:
 				map_index = i
 		_check(map_index >= 0, "real map selection " + map_key)
 		if map_index < 0:
-			tree.quit(1)
+			AudioManager.request_quit(1)
 			return
 		tree.current_scene._on_map_selected(map_index)
 		if not await _wait_scene(AIR): return
@@ -53,7 +53,7 @@ func _run() -> void:
 		var renderer: Node = mode._desert_volume_renderer if map_key == "desert" else mode._map_features._ocean_volume
 		_check(is_instance_valid(renderer), "normal entry renderer " + map_key)
 		if not is_instance_valid(renderer):
-			tree.quit(1)
+			AudioManager.request_quit(1)
 			return
 		if map_key == "desert":
 			var preloaded: Dictionary = renderer.get_meta("desert_preload", {})
@@ -125,7 +125,7 @@ func _run() -> void:
 	report.store_string(JSON.stringify({"pass": _pass, "fail": _fail, "views": _records}, "\t"))
 	report.close()
 	print("[Contact AO menu Visual] pass=", _pass, " fail=", _fail, " views=", _records.size())
-	tree.quit(1 if _fail else 0)
+	AudioManager.request_quit(1 if _fail else 0)
 
 
 func _collect(node: Node, materials: Array[ShaderMaterial]) -> void:
@@ -153,7 +153,7 @@ func _wait_scene(path: String) -> bool:
 		var scene := get_tree().current_scene
 		if scene != null and scene.scene_file_path == path and scene.is_node_ready(): return true
 	_check(false, "timeout entering " + path)
-	get_tree().quit(1)
+	AudioManager.request_quit(1)
 	return false
 
 

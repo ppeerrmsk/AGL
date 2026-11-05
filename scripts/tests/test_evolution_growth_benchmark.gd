@@ -178,7 +178,22 @@ func _try_fixed_route_evolution() -> void:
 			if _missing_axis_counts.has(key):
 				_missing_axis_counts[key] = int(_missing_axis_counts[key]) + 1
 		return
-	_mode._on_settlement_evolution(next_id)
+	# 固定路线仍从正式停靠信号开始，不绕过互斥事务入口。
+	var dock := DockPoint.new()
+	dock.dock_kind = "debug_airfield"
+	dock.docked.connect(_mode._on_dock_docked)
+	dock.docked.emit(dock)
+	# 入场要先跨布局帧再提交；否则迟到的 panel_in 会覆盖退场并重新暂停世界。
+	var tree: SceneTree = _mode.get_tree()
+	await tree.process_frame
+	await tree.process_frame
+	await tree.create_timer(0.25, true, false, true).timeout
+	var mode_value: Variant = _mode
+	if typeof(mode_value) != TYPE_OBJECT or not is_instance_valid(mode_value) or _finished:
+		dock.free()
+		return
+	_mode._evolution_ui.evolution_chosen.emit(next_id)
+	dock.free()
 	var applied: StringName = _mode.player_aircraft.get_meta("evo_node", &"")
 	if applied != next_id:
 		push_error("[GrowthBench] evolution failed: expected=%s actual=%s" % [next_id, applied])

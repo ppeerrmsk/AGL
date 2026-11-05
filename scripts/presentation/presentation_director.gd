@@ -309,8 +309,7 @@ func _process(delta: float) -> void:
 	# zoom ×1.3）和升级急刹的 zoom punch 只改了 cine_zoom_mult、永远不落到镜头上。
 	# 只在世界停/慢时代泵，正常速度下仍由 survivor_mode 泵（避免双泵双倍 lerp）
 	if _camera and (get_tree().paused or Engine.time_scale < 0.999):
-		_camera.update_zoom(ud)
-		_camera.cine_follow_tick(ud)   # 演出期间跟住 cine_target（长机），不是定点看战区
+		_camera.update_presentation_tick(ud) # 缩放与演出跟随同一帧经地图连续性门
 
 	# 混合跑完且序列已结束 → 彻底停机
 	if state != State.PLAYING and not time.is_blending():

@@ -70,6 +70,18 @@ static func _frontier(entry: Dictionary, context: Dictionary) -> Array[Dictionar
 		var insert_started := Time.get_ticks_usec() if trace else 0
 		result=_merge_parent(result[0],split)
 		if trace: context.combine_usec+=Time.get_ticks_usec()-insert_started
+	# 可选的等价无损分区；每份都是完整替代，不能把不同分区当作叠加子块。
+	for alternative: Array in entry.get("alternative_children",[]):
+		var split: Array[Dictionary]=[{"entries":[],"active":0,"faces":0,"bytes":0}]
+		for child: Dictionary in alternative:
+			var branch := _frontier(child,context)
+			if branch.size()==1 and int(branch[0].active)==0: continue
+			var combine_started := Time.get_ticks_usec() if trace else 0
+			split=branch if split.size()==1 and int(split[0].active)==0 else _combine(split,branch,int(context.cap))
+			if trace: context.combine_usec+=Time.get_ticks_usec()-combine_started
+		var insert_started := Time.get_ticks_usec() if trace else 0
+		for candidate: Dictionary in split: _insert(result,candidate)
+		if trace: context.combine_usec+=Time.get_ticks_usec()-insert_started
 	return result
 
 

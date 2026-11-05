@@ -30,6 +30,7 @@ func _physics_process_radar_station_untraced(delta: float) -> void:
 		FrameRedraw.request(self)
 		return
 
+	StatusEffects.tick(self, delta)
 	_update_movement(delta)
 	_update_dish(delta)
 	_update_datalink(delta)
@@ -170,8 +171,10 @@ func _status_label_lines(compact: bool) -> PackedStringArray:
 		hp, params.max_hp if params else hp))
 	var lock_time_val := params.lock_time if params else 3.0
 	var locked_count := 0
-	for key in radar_targets:
-		if radar_targets[key] >= lock_time_val:
+	for key: Variant in radar_targets:
+		if typeof(key) != TYPE_OBJECT or not is_instance_valid(key) or not key is CombatUnit:
+			continue
+		if not key.is_destroyed and radar_targets[key] >= lock_time_val:
 			locked_count += 1
 	if locked_count > 0:
 		lines.append("TRK %d" % locked_count)

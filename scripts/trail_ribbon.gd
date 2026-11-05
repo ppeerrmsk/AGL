@@ -313,17 +313,18 @@ func _rebuild_cached_geometry() -> void:
 
 		prev_point = point
 
-	# 索引构造三角形（2×(count-1) 个三角形 = 丝带状）
-	_cached_indices.resize((visible_count - 1) * 6)
-	for i in range(visible_count - 1):
-		var base := i * 2
-		var idx := i * 6
-		_cached_indices[idx] = base
-		_cached_indices[idx + 1] = base + 1
-		_cached_indices[idx + 2] = base + 2
-		_cached_indices[idx + 3] = base + 1
-		_cached_indices[idx + 4] = base + 3
-		_cached_indices[idx + 5] = base + 2
+	# 点数不变时连接关系不变；位置/宽度/颜色仍逐点重建。
+	if _cached_indices.size() != (visible_count - 1) * 6:
+		_cached_indices.resize((visible_count - 1) * 6)
+		for i in range(visible_count - 1):
+			var base := i * 2
+			var idx := i * 6
+			_cached_indices[idx] = base
+			_cached_indices[idx + 1] = base + 1
+			_cached_indices[idx + 2] = base + 2
+			_cached_indices[idx + 3] = base + 1
+			_cached_indices[idx + 4] = base + 3
+			_cached_indices[idx + 5] = base + 2
 	_cached_fade = _visibility_fade_in
 	_cached_color = ribbon_color
 	_cached_width = ribbon_width

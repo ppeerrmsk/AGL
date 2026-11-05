@@ -37,7 +37,7 @@ func _run_volume_smoke() -> void:
 	# 验证器独立于会被 F8 释放的场景，真实重开后仍继续验证；手动入口不创建它。
 	var smoke_script: GDScript = load("res://scripts/tests/volume_combat_smoke.gd")
 	if smoke_script == null or not smoke_script.can_instantiate():
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	var smoke: Node = smoke_script.new()
 	get_tree().root.add_child(smoke)

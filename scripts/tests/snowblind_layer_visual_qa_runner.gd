@@ -105,7 +105,7 @@ func _ready() -> void:
 	if not transition_ok:
 		push_error("[snowblind_layer_visual] concealment transition is not smooth/complete")
 	AircraftRenderer.player_ref = null
-	get_tree().quit(0 if solid_error == OK and breach_mid_error == OK \
+	AudioManager.request_quit(0 if solid_error == OK and breach_mid_error == OK \
 		and restore_mid_error == OK and transition_ok else 1)
 
 

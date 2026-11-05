@@ -42,12 +42,15 @@ var _speed_unit_button: Button
 var _hud_color_button: Button
 
 func _ready() -> void:
+	var startup_started := Time.get_ticks_usec()
 	RenderingServer.set_default_clear_color(ThemeColors.SCENE_BG)
 	CombatUnit.reset_id_allocator()
 	CallsignDB.reset()
 	if AudioManager.current_music_id() != "main_menu" or not AudioManager.is_music_playing():
 		AudioManager.crossfade_music("main_menu", 2.0, true)
 	_build_ui()
+	if OS.get_environment("AGL_STARTUP_AUDIT")=="1":
+		print("[StartupAudit] menu_ready_ms=",Time.get_ticks_msec()," menu_build_usec=",Time.get_ticks_usec()-startup_started)
 
 
 ## ── Debug 快捷键（开发用） ──

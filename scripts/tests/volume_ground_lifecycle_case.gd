@@ -67,9 +67,9 @@ func run(parent: Node) -> int:
 	aa.turret_heading = 1.25
 	probe._process(.016)
 	if DisplayServer.get_name() != "headless":
-		var route := "ground_full_aa_turret"
+		var route := "ground_simple_aa_turret"
 		var submitted: Transform3D = probe._batches[route].multimesh.get_instance_transform(0)
-		var expected: Basis = probe._display_ground * Basis(Vector3.UP, -aa.turret_heading)
+		var expected: Basis = probe._display_ground * Basis(Vector3.UP, -aa.turret_heading).scaled(Vector3.ONE * Presenter.scale_for(aa))
 		_check(submitted.basis.is_equal_approx(expected), "GPU turret follows authoritative aim")
 	var train: ArmoredTrainSegment = units[5]
 	_check(probe._ground_presenter.marker_points.size() == 12, "pre-stage cross is above composite")

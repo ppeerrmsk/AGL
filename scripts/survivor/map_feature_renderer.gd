@@ -6,6 +6,7 @@ const DetailTileCache = preload("res://scripts/survivor/map_detail_tile_cache.gd
 const RasterBasemapRendererScript = preload("res://scripts/survivor/raster_basemap_renderer.gd")
 const TokyoVolumeOverlay = preload("res://scripts/rendering/tokyo_volume_overlay.gd")
 const TokyoVolumePreload = preload("res://scripts/rendering/tokyo_volume_preload.gd")
+const TokyoInstalledMap = preload("res://scripts/rendering/tokyo_installed_map.gd")
 const OceanVolumeOverlay = preload("res://scripts/rendering/ocean_volume_overlay.gd")
 
 ## 正式地图底图加载失败时通知场景主控；UGC 纯矢量模式不会尝试加载，也不会发出此信号。
@@ -29,18 +30,21 @@ signal basemap_load_failed(reason_key: String)
 var _camera: Camera2D
 var _world_rect: Rect2
 var _tokyo_volume: Node2D
+var _tokyo_hlod_primary := false
+var _tokyo_m20_required := false
 var _ocean_volume: Node2D
 var volume_document_path := ""
 
 func setup(camera: Camera2D, world_rect: Rect2) -> void:
 	_camera = camera
 	_world_rect = world_rect
+	# 正式东京地图安装了 M20 后，三维 HLOD 是唯一地图源；初始化失败也不能切回旧 PNG。
+	_tokyo_m20_required = use_basemap and not ugc_vector_only and basemap_map_key == "tokyo" \
+		and not TokyoInstalledMap.package_path().is_empty()
 	# 纯矢量只在显式诊断参数下预热，常规 PNG/栅格路径不支付百万三角形构图成本。
 	if OS.is_debug_build() and not ugc_vector_only \
 			and OS.get_cmdline_user_args().has("--vector-map-preview"):
 		_prepare_vector_preview()
-	if use_basemap:
-		_ensure_basemap_loaded()
 	if use_basemap and _tokyo_volume == null and TokyoVolumeOverlay.default_enabled(basemap_map_key, ugc_vector_only):
 		_tokyo_volume = TokyoVolumePreload.take(self, camera)
 		if _tokyo_volume == null:
@@ -53,7 +57,13 @@ func setup(camera: Camera2D, world_rect: Rect2) -> void:
 		# 正式地图：主线程地图重活（交接/规划/上传）错峰到不同帧、优先无物理步帧（仅 HLOD 路由有此开关）。
 		if _tokyo_volume != null:
 			_tokyo_volume.set(&"map_frame_balance", true)
-	if use_basemap and _raster_basemap != null and _ocean_volume == null and OceanVolumeOverlay.ocean_enabled(basemap_map_key, volume_document_path):
+	# 正式 M20 路由只使用完整三维切面；旧栅格不再作为东京地图的失败回退。
+	_tokyo_hlod_primary = use_basemap and _tokyo_volume is TokyoVolumePreload.HLOD
+	if _tokyo_m20_required and not _tokyo_hlod_primary:
+		push_error("[MapFeatureRenderer] installed Tokyo M20 route failed to attach HLOD; legacy raster fallback is disabled")
+	if use_basemap and not _tokyo_m20_required and not _tokyo_hlod_primary:
+		_ensure_basemap_loaded()
+	if use_basemap and not _tokyo_m20_required and not _tokyo_hlod_primary and _raster_basemap != null and _ocean_volume == null and OceanVolumeOverlay.ocean_enabled(basemap_map_key, volume_document_path):
 		_ocean_volume = OceanVolumeOverlay.new()
 		_ocean_volume.name = "OceanVolumeMap"
 		add_child(_ocean_volume)
@@ -247,11 +257,12 @@ func set_vector_preview_enabled(enabled: bool) -> bool:
 			_vector_preview.visible = false
 		if _detail_tile_preview != null:
 			_detail_tile_preview.set_detail_zoom(_camera.zoom.x if _camera != null else 0.0, false)
-		_ensure_basemap_loaded()
+		if not _tokyo_m20_required and not _tokyo_hlod_primary:
+			_ensure_basemap_loaded()
 		if _raster_basemap != null:
-			_raster_basemap.set_active(true)
+			_raster_basemap.set_active(tile_basemap_enabled and not _tokyo_m20_required and not _tokyo_hlod_primary)
 		if _basemap_sprite != null:
-			_basemap_sprite.visible = true
+			_basemap_sprite.visible = not _tokyo_m20_required and not _tokyo_hlod_primary
 	queue_redraw()  # 仅切换时清一次父 CanvasItem 的静态命令缓存。
 	return true
 
@@ -281,6 +292,11 @@ func _draw() -> void:
 	if not _camera:
 		return
 	if vector_preview_enabled:
+		return
+	if _tokyo_m20_required or _tokyo_hlod_primary:
+		# M20/HLOD 的三维页面已经承担地表与道路；不要再把旧二维 PNG 叠回其下。
+		_draw_tacview_crosses()
+		_draw_edge_vignette()
 		return
 	MapGeography.ensure_ready()
 	if not ugc_vector_only:

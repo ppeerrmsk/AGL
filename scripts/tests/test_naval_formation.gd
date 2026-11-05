@@ -31,10 +31,20 @@ var _root: Node2D = null
 
 func run() -> void:
 	print("\n════════ 舰队编队运动验收（反原地旋转） ════════")
+	# 原有转率测试是开阔海域运动单测，不应被东京实图岸线截停。
+	MapGeography.ensure_ready()
+	var saved_land: Array = MapGeographyData.LAND_MASK_POLYGONS
+	var saved_ugc := MapGeography.ugc_mode
+	MapGeography.ugc_mode = true
+	MapGeographyData.LAND_MASK_POLYGONS = []
 	_root = Node2D.new()
 	_test_csg_ring_patrol()
 	_test_uturn_no_whip()
 	_test_solo_ship_unchanged()
+	_test_small_ring_exact()
+	_test_shore_guard()
+	MapGeographyData.LAND_MASK_POLYGONS = saved_land
+	MapGeography.ugc_mode = saved_ugc
 	_root.free()
 	_root = null
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
@@ -188,3 +198,59 @@ func _check(label: String, ok: bool) -> void:
 	else:
 		_fail += 1
 		printerr("   ✗ %s" % label)
+
+## 海域隔离夹具：保留真实NavalUnit运动，人工窄堤让穿岸确定性出现。
+func _test_shore_guard() -> void:
+	var water := preload("res://scripts/naval/naval_water.gd")
+	MapGeographyData.LAND_MASK_POLYGONS = [PackedVector2Array([
+		Vector2(90, -500), Vector2(92, -500), Vector2(92, 500), Vector2(90, 500)])]
+	_check("中心仍在水中但船头距窄堤不足时拒绝", not water.disk_clear(Vector2(70, 0), 30))
+	_check("整艘船远离窄堤时允许", water.disk_clear(Vector2.ZERO, 40))
+	_check("中心点全水的驻泊摆位仍必须给船体留净空", NavalPlacement.score(Vector2(70, 0), 0, []) > 0)
+	var solo := _make_ship(FFG_PARAMS_PATH, Vector2.ZERO, 90)
+	solo.target_position = Vector2(1000, 0)
+	for i in 3600:
+		solo._update_movement(DT)
+	_check("独立航点船在岸前停下，船体不上岸", solo.position.x > 1 and solo.position.x < 53 and solo.speed == 0)
+	var jump := _make_ship(FFG_PARAMS_PATH, Vector2.ZERO, 90)
+	jump.target_position = Vector2(1000, 0)
+	jump._update_movement(60.0)
+	_check("大步长两端都在水中也不能穿过2px窄堤", jump.position == Vector2.ZERO)
+	# 护卫靠岸、旗舰远离岸：必须整队停，不能只查旗舰中心。
+	var lead := _make_ship(FFG_PARAMS_PATH, Vector2(-200, 0), 90)
+	lead.target_position = Vector2(1000, 0)
+	var wings := _make_escorts(lead, [Vector2(200, 0)])
+	var wing: NavalUnit = wings[0]
+	wing._update_movement(DT)
+	for i in 3600:
+		lead._update_movement(DT)
+		wing._update_movement(DT)
+	_check("护卫接近岸线时旗舰也停止，保持刚体间距", lead.speed == 0 and wing.speed == 0
+		and wing.position.x < 53 and absf(wing.position.x - lead.position.x - 200) < 0.1)
+	# 原地改用另一张地图：不能继续复用上一张图的安全圆/岸线桶。
+	MapGeographyData.LAND_MASK_POLYGONS = []
+	solo._update_movement(DT)
+	_check("地图切换使水域认证失效并恢复可行航行", solo.speed > 0)
+
+func _test_small_ring_exact() -> void:
+	for radius: float in [120.0, 240.0]:
+		var lead := _make_ship("res://resources/naval/destroyer_ddg.tres", Vector2(-radius, 0), 0)
+		lead.patrol_center = Vector2.ZERO
+		lead.patrol_radius = radius
+		var wings := _make_escorts(lead, [Vector2(-210, 230)])
+		var wing: NavalUnit = wings[0]
+		wing._update_movement(DT)
+		var error := 0.0
+		var orbit: float = wing.position.length()
+		var wing_error := 0.0
+		var turned := 0.0
+		for i in 7200:
+			var previous := lead.heading
+			lead._update_movement(0.25)
+			wing._update_movement(0.25)
+			turned += angle_difference(previous, lead.heading)
+			error = maxf(error, absf(lead.position.length() - radius))
+			wing_error = maxf(wing_error, absf(wing.position.length() - orbit))
+		_check("%.0fpx小圈实走30分钟：旗舰与护卫不偏离预检圆" % radius, error < 0.1 and wing_error < 0.1 and turned > TAU)
+		_check("%.0fpx小圈按转率降速，仍在正常航行" % radius, lead.speed > 0
+			and lead.speed * CombatUnit.PIXELS_PER_METER <= lead._effective_turn_rate() * radius + 0.001)

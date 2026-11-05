@@ -41,8 +41,8 @@ func configure_ellipse(center_pos: Vector2, long_axis: Vector2, half_length: flo
 	if rail_axis.length_squared() < 0.5:
 		rail_axis = Vector2.UP
 	rail_lateral = Vector2(-rail_axis.y, rail_axis.x)
-	rail_half_length = maxf(half_length, 1.0)
-	rail_half_width = maxf(half_width, 1.0)
+	rail_half_length = maxf(half_length, 0.0)
+	rail_half_width = maxf(half_width, 0.0)
 	rail_center = center_pos
 	rail_phase = fposmod(start_phase, TAU)
 	position = rail_center + rail_axis * cos(rail_phase) * rail_half_length \
@@ -52,6 +52,9 @@ func configure_ellipse(center_pos: Vector2, long_axis: Vector2, half_length: flo
 func _update_movement(delta: float) -> void:
 	if rail_center == Vector2.INF:
 		super._update_movement(delta)
+		return
+	if rail_half_length <= 0.0 and rail_half_width <= 0.0:
+		speed = 0.0
 		return
 	# 解析式椭圆：每帧位置直接由 phase 求值，没有 waypoint 过冲和累计漂移。
 	# 用当前切线长度换算角速度，使世界线速度近似恒定。

@@ -14,13 +14,30 @@ var _catalogs: Array[Dictionary] = []
 var _geometry: Dictionary = {}
 var _textures: Dictionary = {}
 var _stream: Node
+var _metadata_retirement: Node
 var _target: Dictionary = {}
 var _target_catalog := -1
 var _committed_catalog := -1
 var _committed := PackedStringArray()
 var _committed_cut: Dictionary = {}
 var _nodes: Array[MeshInstance3D] = []
+var _hlod_binding_nodes: Dictionary={}
+var reused_hlod_pages := 0
+var created_hlod_pages := 0
 var _page_materials: Array[ShaderMaterial] = []
+var _lod_old_nodes: Array[MeshInstance3D]=[]
+var _lod_old_materials: Array[ShaderMaterial]=[]
+var _lod_old_cut: Dictionary={}
+var _lod_old_catalog := -1
+var _lod_old_token: RefCounted
+var _lod_blend_age := 0.0
+var _lod_blend_started_usec := 0
+var _lod_blend_start_scale := 0.0
+var _lod_blend_amount := 0.0
+var lod_blends := 0
+var lod_blend_budget_skips := 0
+var lod_blend_peak_pages := 0
+var lod_blend_peak_bytes := 0
 var _ground_token := RefCounted.new()
 var _ground_charged := false
 var _legacy: WeakRef
@@ -65,7 +82,7 @@ var display_budget := preload("res://scripts/rendering/tokyo_hlod_cache_policy.g
 var cache_pool_limit := preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd").candidate_limit()
 var loading_neighborhood := false
 var loading_neighborhood_bytes := 0
-var resident_foundation := OS.get_environment("AGL_TOKYO_RESIDENT_FOUNDATION")=="1"
+var resident_foundation := preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_RESIDENT_FOUNDATION")=="1"
 var _foundation: Dictionary = {}
 var foundation_prefetch_skips := 0
 var _speculative_cache: Dictionary = {}
@@ -77,6 +94,22 @@ var loading_neighborhood_on_setup := false
 var _selection_trace: Array[Dictionary]=[]
 var _trace_selection := OS.get_environment("AGL_TOKYO_SELECTION_TRACE")=="1"
 var _trace_counterfactual := OS.get_environment("AGL_TOKYO_HANDOFF_COUNTERFACTUAL")=="1"
+var _camera_demand: Dictionary={}
+var _camera_motion_hint: Dictionary={}
+var _prepared_motion_cuts: Array=[]
+var _geometry_aliases: Dictionary={}
+var _cached_motion_frame := -1
+var cached_motion_selects := 0
+var cached_motion_select_peak_usec := 0
+var summary_motion_commits := 0
+var summary_motion_refinements := 0
+var summary_motion_adoptions := 0
+var _summary_refinement_ready_at := 0
+var _guard_prefetch := preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_GUARD_PREFETCH")
+var _return_cache := preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_RETURN_CACHE")
+var camera_wait_frames := 0
+var camera_wait_max_ms := 0
+var _camera_wait_started := -1
 var pending_selection_reuses := 0
 var motion_actual_cuts := 0
 var native_screen_rejections := 0
@@ -93,6 +126,10 @@ var _plan_applied := 0
 var _plan_rejected := 0
 var _plan_pending_frames := 0
 var _plan_prepare_usec := 0
+var _plan_prepare_stages: Dictionary={}
+var _prepared_source_ready := false
+var _prepared_stream_source: Dictionary={}
+var _setup_stages: Dictionary={}
 var _plan_submit_usec := 0
 var _plan_admission_usec := 0
 var _plan_mode := "unconfigured"
@@ -116,6 +153,8 @@ class Layout extends Resource:
 
 
 func _load_archive() -> Resource:
+	if _prepared_source_ready: return _archive
+	var started := Time.get_ticks_usec()
 	var path := preload("res://scripts/rendering/tokyo_installed_map.gd").package_path()
 	var digest := preload("res://scripts/rendering/tokyo_installed_map.gd").package_sha()
 	if not Contract.sha(digest) or not FileAccess.file_exists(path) or FileAccess.get_sha256(path)!=digest: return null
@@ -141,9 +180,13 @@ func _load_archive() -> Resource:
 			if _textures.has(physical) and _textures[physical]!=catalog.textures[physical]: return null
 			_textures[physical]=catalog.textures[physical]
 		_catalogs.append(catalog)
+	_plan_prepare_stages["hlod_read"]=Time.get_ticks_usec()-started
+	if preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_DISPLAY_COMPACTION"):
+		preload("res://scripts/rendering/tokyo_hlod_transition.gd").append_catalogs(_catalogs)
 	if package.has("native"):
 		_native=preload("res://scripts/rendering/tokyo_grid_native.gd").new() if package.native.has("grid_candidate") else Native.new()
 		if not _native.read(package.native): return null
+		if _native is Native: _plan_prepare_stages["native_read"]=_native.read_stages_usec.duplicate()
 		for texture_path: String in _native.ground.get("textures",{}):
 			if _textures.has(texture_path): return null
 			_textures[texture_path]=_native.ground.textures[texture_path]
@@ -164,7 +207,31 @@ func _load_archive() -> Resource:
 	return layout
 
 
+func prepare_background_source() -> bool:
+	# 仅在尚未入树的独占实例上运行；不创建视口、纹理、节点或显示资源。
+	# 完成后由Loading主线程接管同一实例，不在战场重新读取或初始化。
+	if is_inside_tree() or _prepared_source_ready: return false
+	var archive_started := Time.get_ticks_usec()
+	_archive=_load_archive()
+	_plan_prepare_stages["archive"]=Time.get_ticks_usec()-archive_started
+	if _archive==null or not _archive.valid(): return false
+	if resident_foundation:
+		_foundation=preload("res://scripts/rendering/tokyo_hlod_foundation.gd").plan(_catalogs,display_budget,OS.get_environment("AGL_TOKYO_COMPLETE_FOUNDATION")=="1")
+		if _foundation.is_empty(): return false
+	if not _prepare_map_planner(): return false
+	var started := Time.get_ticks_usec()
+	_prepared_stream_source=Stream.prepare_hlod_source(_geometry,_textures)
+	_plan_prepare_stages["stream_source"]=Time.get_ticks_usec()-started
+	if _prepared_stream_source.is_empty(): return false
+	_prepared_source_ready=true
+	return true
+
+
 func _setup_geometry() -> void:
+	_metadata_retirement=preload("res://scripts/rendering/tokyo_metadata_retirement.gd").attach(self)
+	var phase_started := Time.get_ticks_usec()
+	var motion_candidate := preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_DISPLAY_COMPACTION")
+	_exact_canvas_tracking=motion_candidate
 	_composite.set_shader_parameter("edge_feather",0.0)
 	_sun.shadow_enabled=false
 	_surface=Shader.new()
@@ -175,7 +242,15 @@ func _setup_geometry() -> void:
 	_formal_surface.code=preload("res://scripts/rendering/tokyo_hlod_surface.gd").shader_code()
 	_native_surface=Shader.new()
 	_native_surface.code=preload("res://scripts/rendering/tokyo_hlod_surface.gd").native_code()
+	_setup_stages["shaders"]=Time.get_ticks_usec()-phase_started
+	phase_started=Time.get_ticks_usec()
 	_stream=Stream.new()
+	# 当前交接页优先于预测页；只改变原共享槽/上传顺序，不增加并发、额度或缓存。
+	if motion_candidate:
+		_stream.visible_io_first=true
+		_stream.visible_finalize_first=true
+		# 连续大纹理上传不能把当前网格饿死；重帧最多领取/发起一件，仍守共享额度。
+		_stream.minimum_mesh_progress=true
 	# 正式地图流：完成件领取/纹理上传优先落到无物理步帧（有界延后，见 TokyoCellStream）。
 	_stream.light_frame_balance=true
 	if _native is GridNative:
@@ -183,11 +258,14 @@ func _setup_geometry() -> void:
 		_native.subset_geometry=_geometry
 	# 退出后仍须领取在途资源，不能作为随overlay立即删除的子节点。
 	get_tree().root.add_child(_stream)
-	if not _stream.configure_hlod(self,_geometry,_textures):
+	var stream_ready: bool=_stream.configure_hlod(self,_geometry,_textures) if _prepared_stream_source.is_empty() \
+		else _stream.configure_prepared_hlod(self,_prepared_stream_source)
+	_prepared_stream_source={}
+	if not stream_ready:
 		_fallback="invalid stream"
 		_enabled=false
 	elif resident_foundation:
-		_foundation=preload("res://scripts/rendering/tokyo_hlod_foundation.gd").plan(_catalogs,display_budget,OS.get_environment("AGL_TOKYO_COMPLETE_FOUNDATION")=="1")
+		if _foundation.is_empty(): _foundation=preload("res://scripts/rendering/tokyo_hlod_foundation.gd").plan(_catalogs,display_budget,OS.get_environment("AGL_TOKYO_COMPLETE_FOUNDATION")=="1")
 		if _foundation.is_empty() or not _stream.configure_residency(_foundation.meshes,_foundation.images,cache_pool_limit):
 			_fallback="invalid foundation residency"
 			_enabled=false
@@ -207,19 +285,22 @@ func _setup_geometry() -> void:
 		_stream.residency_limit=384*1024*1024
 	elif cache_pool_limit>Stream.BUDGET:
 		_stream.residency_limit=cache_pool_limit
+	_setup_stages["stream"]=Time.get_ticks_usec()-phase_started
+	phase_started=Time.get_ticks_usec()
 	# base.setup紧接着会同步_process(0)并发出首批I/O；邻区必须在那之前完成组合。
 	if loading_neighborhood_on_setup and _enabled and cache_pool_limit>Stream.BUDGET:
 		var source: Variant=_source_ref.get_ref()
 		var camera: Variant=_camera_ref.get_ref()
 		if typeof(source)==TYPE_OBJECT and is_instance_valid(source) and typeof(camera)==TYPE_OBJECT and is_instance_valid(camera):
 			prepare_loading_neighborhood(camera.position,clampf(camera.zoom.x,0.0973,preload_max_scale),source.get_viewport().get_visible_rect().size)
+	_setup_stages["neighborhood"]=Time.get_ticks_usec()-phase_started
 	if _enabled and not _prepare_map_planner():
 		_enabled=false
 		_fallback="invalid prepared planning source"
 
 
 func prepare_loading_neighborhood(center: Vector2, scale_value: float, output: Vector2) -> void:
-	if cache_pool_limit<=Stream.BUDGET or loading_neighborhood: return
+	if cache_pool_limit<=2*Stream.BUDGET or loading_neighborhood: return
 	var policy := preload("res://scripts/rendering/tokyo_hlod_cache_policy.gd")
 	var base := {"meshes":_stream.residency_meshes.duplicate(),"images":_stream.residency_images.duplicate(),"bytes":_stream.residency_bytes}
 	var plan: Dictionary=base.duplicate(true)
@@ -280,6 +361,7 @@ func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bo
 		var protected := _committed.duplicate()
 		protected.append_array(PackedStringArray(_target.get("keys",[])))
 		protected.append_array(_stream.residency_meshes)
+		protected.append_array(PackedStringArray(_lod_old_cut.get("keys",[])))
 		_native.retire_subsets(protected)
 	var handoff_budget: int=_stream.residency_limit-_stream.residency_bytes
 	# 相机方向必须逐帧观察；后台请求可能仍在较早的倍率，不能用请求姿态判断反转。
@@ -302,6 +384,19 @@ func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bo
 			# 候选预取按时间平滑：物理60Hz/呈现120Hz的零位移交替不能放大为预测摆动。
 			_pan_velocity=preload("res://scripts/rendering/tokyo_native_predictor.gd").smooth_pan(_pan_velocity,displacement/_delta,_delta)
 	zoom_prediction_reversals+=int(previous_zoom_rate*_zoom_rate<0.0)
+	# 控制器已证明的连续输入不能因单帧超过160px被当作冷瞬切。
+	# 只消费与实际显示姿态一致的新样本；外部cine_cut仍清空旧预测。
+	if not _camera_motion_hint.is_empty() and _last_canvas.is_equal_approx(_camera_motion_hint.canvas) \
+		and _last_size.is_equal_approx(_camera_motion_hint.size):
+		_pan_velocity=_camera_motion_hint.velocity;_zoom_rate=_camera_motion_hint.rate
+		observed_direction=1 if _zoom_rate>0.02 else (-1 if _zoom_rate< -0.02 else 0)
+	_camera_motion_hint={}
+	# 被地图连续性门暂缓的输入仍是当前需求；用它继续准备目标，而不是让相机超前后再清屏。
+	if not _camera_demand.is_empty():
+		_zoom_rate=float(_camera_demand.rate)
+		_pan_velocity=_camera_demand.velocity
+		observed_direction=1 if _zoom_rate>0.02 else (-1 if _zoom_rate< -0.02 else 0)
+		_plan_dirty=true
 	_motion_center=motion_center
 	var previous_scale := _last_selected_canvas.x.length()
 	var direction := observed_direction
@@ -318,7 +413,21 @@ func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bo
 		_plan_revision+=1;_plan_dirty=true;_last_selected_size=Vector2.ZERO
 		_request_target(false)
 	# 已就绪的合格中间档先交接；方向反转后不提交更快过期的降档事务。
-	var changed := _commit_ready_target(scale_value)
+	var changed := _step_lod_blend(scale_value,_delta)
+	var staged_successor := _stage_lod_successor(scale_value)
+	changed=staged_successor or changed
+	# 进入相邻档合法区就接纳已准备的切面，不能等旧档过期后才发现它已被新预测覆盖。
+	if not staged_successor and _lod_old_cut.is_empty() and _camera_demand.is_empty() \
+		and preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_LOD_BLEND"):
+		for prepared: Dictionary in _prepared_motion_cuts:
+			# 原生交接由成对后继负责；旧预测不能在缩远时再次把近景模型换回来。
+			if int(prepared.catalog)<0 or int(prepared.catalog)==_committed_catalog: continue
+			if _committed_catalog==-2 and _zoom_rate>= -0.02: continue
+			if _stage_prepared_motion(scale_value,[prepared]):
+				_target["lod_blend_target"]=true
+				changed=true
+				break
+	changed=_commit_ready_target(scale_value) or changed
 	_update_display_grace(view_bounds.intersection(_archive.bounds),scale_value)
 	var rapid_zoom := previous_scale>0.0 and absf(_last_canvas.x.length()/previous_scale-1.0)>0.025
 	var current_covered := _committed_catalog!=-1 and _cut_covers_current_view(_committed_cut,_committed_catalog)
@@ -337,7 +446,7 @@ func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bo
 			# 新中景本身是完整合格显示表示；相邻细档另由预测I/O准备，不提前替换画面。
 			if foundation_catalog<0:
 				var actual_foundation := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,scale_value)
-				if actual_foundation>=0 and _catalogs[actual_foundation].has("middle_massing_recipe"): foundation_catalog=actual_foundation
+				if actual_foundation>=0 and (_catalogs[actual_foundation].has("middle_massing_recipe") or _catalogs[actual_foundation].has("far_summary_recipe")): foundation_catalog=actual_foundation
 			if foundation_catalog>=0: selected=foundation_catalog
 			var next: Dictionary = {}
 			if selected<0 and _native!=null and scale_value>0.1944: selected=-2
@@ -430,8 +539,9 @@ func _step_geometry(view_bounds: Rect2, scale_value: float, _delta: float) -> bo
 					and (next.is_empty() or not next.within_budget or _handoff_bytes(next,selected)>handoff_budget):
 					var actual_catalog := Handoff.catalog_index(_catalogs,scale_value,false)
 					var bridge_catalogs: Array[int]=[]
+					if zooming_out and actual_catalog>=0 and actual_catalog!=_committed_catalog: bridge_catalogs.append(actual_catalog)
 					if _committed_catalog>=0: bridge_catalogs.append(_committed_catalog)
-					if actual_catalog>=0 and actual_catalog!=_committed_catalog: bridge_catalogs.append(actual_catalog)
+					if actual_catalog>=0 and actual_catalog not in bridge_catalogs: bridge_catalogs.append(actual_catalog)
 					for bridge_catalog: int in bridge_catalogs:
 						var handoff_cut := _select_handoff_hlod(bridge_catalog,center,scale_value,_last_canvas.get_rotation(),_last_size,handoff_budget,display_budget)
 						if not handoff_cut.is_empty():
@@ -635,6 +745,9 @@ func _finish_display_step(scale_value: float, changed: bool, covered: bool, chec
 
 
 func _pending_hlod_covers(scale_value: float, zooming_out: bool) -> bool:
+	# 缩远退出当前档后停止同档扩装，但保留真正跨档的在途桥接；与后台规划同规则。
+	if zooming_out and _target_catalog>=0 and _target_catalog==_committed_catalog \
+		and scale_value<float(_catalogs[_target_catalog].get("range",[0.0,INF])[0]): return false
 	# 普通保护带事务也可能即将到期；沿用桥接的0.25秒资格，不能占住下一细档的加载窗口。
 	return _target_catalog>=0 and not _target_committed() and not _target.has("anticipated_scale") \
 		and Handoff.qualified(_catalogs[_target_catalog],_target,scale_value) \
@@ -755,7 +868,9 @@ func _motion_guarded_actual(selected: int, next: Dictionary, center: Vector2, sc
 	# 同步兼容路径与 MapPlanner 同一规则：运动中细档裸切面改取实际档保护切面。
 	var guard := float(next.get("spatial_guard_px",0.0))
 	var need := Handoff.motion_guard_need(_pan_velocity,scale,size)
-	if guard>=need or _foundation.get("layers",{}).has(selected): return {}
+	# 冷进入无速度历史也须避免裸视野占满显示池，规则与后台规划一致。
+	var cold_full := _committed.is_empty() and int(next.get("bytes",0))>Stream.BUDGET/2 and guard<48.0
+	if (guard>=need and not cold_full) or _foundation.get("layers",{}).has(selected): return {}
 	var actual := Handoff.catalog_index(_catalogs,scale,false)
 	if actual<0 or actual==selected: return {}
 	var cut := _select_hlod(_catalogs[actual],center,scale,angle,size,false,Stream.BUDGET/2)
@@ -959,6 +1074,8 @@ func _predict_prefetch(center: Vector2, scale_value: float, angle: float, size: 
 			horizon=clampf(log(future_scale/scale_value)/_zoom_rate,0.0,horizon)
 	var future_center := center+Handoff.pan_lead(_pan_velocity,future_scale,horizon,size)
 	var index := Handoff.catalog_index(_catalogs,future_scale,_zoom_rate>=0.0)
+	var future_foundation := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,future_scale)
+	if future_foundation>=0 and _catalogs[future_foundation].has("far_summary_recipe"): index=future_foundation
 	if index<0 or (_zoom_rate>=0.0 and future_scale>float(_catalogs[index].get("prefer_native_above",INF))): index=-2
 	if _foundation.get("layers",{}).has(index):
 		var fixed := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").select(_catalogs[index],_foundation.layers[index].entries,future_center,future_scale,angle,size,display_budget)
@@ -1058,6 +1175,167 @@ func _target_covers_current_view(margin_px: float = 0.0) -> bool:
 	return _cut_covers_current_view(_target,_target_catalog,margin_px)
 
 
+func camera_motion_checkpoint(scale_value: float) -> float:
+	# 快速缩远逐段经过中间档；提交入口会独立核验当前镜头的覆盖与资源。
+	if not _enabled or not _active or _committed.is_empty(): return 0.0
+	var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
+	if typeof(source)!=TYPE_OBJECT or not is_instance_valid(source): return 0.0
+	if not source.is_visible_in_tree() or source.get("vector_preview_enabled")==true: return 0.0
+	if _target_catalog<0 or _target.is_empty() or _target_committed(): return 0.0
+	# 已就绪的路径检查点同时约束位置和缩放。再单独截断缩放会改变整条
+	# 插值路径，使后台已证明可交接的中间姿态永远无法被控制器尝试。
+	# 保留原联合路径，由camera_motion_ready逐步核资格、覆盖与实际资源。
+	if _target.get("motion_checkpoint",false) and _resources_ready(_target,_target_catalog): return 0.0
+	var boundary := Handoff.scale_limit(_catalogs[_target_catalog],_target)*(1.0-0.000001)
+	return boundary if scale_value<boundary and output_scale>boundary else 0.0
+
+
+func camera_motion_pending(canvas: Transform2D, output: Vector2, rate: float, velocity: Vector2) -> void:
+	# 显示已经推进的小步仍保留完整输入事务，供规划器准备尚未显示的镜头位置。
+	var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
+	if typeof(source)!=TYPE_OBJECT or not is_instance_valid(source): return
+	var logical: Vector2=source.get_viewport().get_visible_rect().size
+	if minf(logical.x,logical.y)<=0.0 or minf(output.x,output.y)<=0.0: return
+	var scale_value := canvas.x.length()*output.x/logical.x
+	if absf(rate)<0.02 and not is_equal_approx(scale_value,_last_canvas.x.length()*output.x/logical.x):
+		rate=clampf(log(scale_value/maxf(_last_canvas.x.length()*output.x/logical.x,0.001))/0.25,-2.0,2.0)
+	_camera_demand={"rate":rate,"velocity":velocity,"canvas":canvas,"size":output,"scale":scale_value}
+	if is_instance_valid(_stream): _stream.input_waiting=true
+	_plan_dirty=true
+
+
+func camera_motion_ready(canvas: Transform2D, output: Vector2, rate: float, velocity: Vector2, measure_wait: bool = true) -> bool:
+	# 在镜头移动前复核目标；不以过期切面放行，也不延长旧切面的清晰度宽限。
+	# 活动地图没有已提交切面时也必须等目标就绪；否则镜头会在清屏期间继续推进。
+	if not _enabled or not _active: return true
+	var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
+	if typeof(source)!=TYPE_OBJECT or not is_instance_valid(source): return true
+	if not source.is_visible_in_tree() or source.get("vector_preview_enabled")==true: return true
+	if minf(output.x,output.y)<=0.0: return false
+	var logical: Vector2=source.get_viewport().get_visible_rect().size
+	if minf(logical.x,logical.y)<=0.0: return false
+	if _guard_prefetch and measure_wait and is_finite(rate) and velocity.is_finite():
+		_camera_motion_hint={"canvas":canvas,"size":output,"rate":rate,"velocity":velocity}
+	var scale_value := canvas.x.length()*output.x/logical.x
+	var previous_canvas := _last_canvas
+	var previous_size := _last_size
+	var previous_direction := _zooming_in
+	var previous_rate := _zoom_rate
+	_last_canvas=canvas;_last_size=output;_zooming_in=rate>0.02;_zoom_rate=rate
+	var ready := _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog)
+	if not ready:
+		# 后台已完成但尚未进入主线程缓存的网格，须在本帧决定镜头能否推进前领取。
+		# 共用流送器原单帧领取配额；不发请求、不上传纹理、不在小步重试时重复调用。
+		if _guard_prefetch and measure_wait and is_instance_valid(_stream): _stream.collect_ready_meshes()
+		_commit_ready_target(scale_value)
+		ready=not _committed.is_empty() and _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog)
+		if not ready and _stage_prepared_motion(scale_value):
+			_commit_ready_target(scale_value)
+			ready=not _committed.is_empty() and _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog)
+		if not ready and measure_wait and _stage_cached_motion(scale_value):
+			_commit_ready_target(scale_value)
+			ready=not _committed.is_empty() and _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog)
+	_last_canvas=previous_canvas;_last_size=previous_size;_zooming_in=previous_direction;_zoom_rate=previous_rate
+	if ready:
+		if _camera_wait_started>=0: camera_wait_max_ms=maxi(camera_wait_max_ms,Time.get_ticks_msec()-_camera_wait_started)
+		_camera_demand={};_camera_wait_started=-1
+		if is_instance_valid(_stream): _stream.input_waiting=false
+	else:
+		if not measure_wait: return false
+		camera_motion_pending(canvas,output,rate,velocity)
+		camera_wait_frames+=1
+		if _camera_wait_started<0: _camera_wait_started=Time.get_ticks_msec()
+		camera_wait_max_ms=maxi(camera_wait_max_ms,Time.get_ticks_msec()-_camera_wait_started)
+	return ready
+
+
+func _stage_cached_motion(scale_value: float) -> bool:
+	# SPACE可一帧经过数屏。只在首次准入失败时查一次已有空间索引，
+	# 资源不齐即拒绝，不在这里加载/构建资源；避免完整驻留仍等后台往返。
+	if not _guard_prefetch or not is_instance_valid(_stream) \
+		or _cached_motion_frame==Engine.get_process_frames(): return false
+	var fixed := preload("res://scripts/rendering/tokyo_hlod_foundation.gd").catalog_at(_foundation,scale_value,-1,true)
+	if fixed<0 and _native==null and _catalogs.is_empty(): return false
+	_cached_motion_frame=Engine.get_process_frames()
+	var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
+	if typeof(source)!=TYPE_OBJECT or not is_instance_valid(source): return false
+	var logical: Vector2=source.get_viewport().get_visible_rect().size
+	var center := _last_canvas.affine_inverse()*(logical*0.5)
+	var started := Time.get_ticks_usec()
+	var next: Dictionary
+	var staged := false
+	_selection_work["stable_hlod_leaves"]=true
+	_selection_work["stable_hlod_tiles"]=_return_cache
+	if fixed>=0:
+		# 返回全图常驻层也不等后台选择；原全图费用和资格检查仍生效。
+		next=preload("res://scripts/rendering/tokyo_hlod_foundation.gd").select(_catalogs[fixed],_foundation.layers[fixed].entries,
+			center,scale_value,_last_canvas.get_rotation(),_last_size,display_budget,{"persistent_summary":true})
+		if not next.is_empty() and scale_value>float(_foundation.layers[fixed].upper): next["motion_summary"]=true
+	else:
+		# 普通HLOD同样可能已经驻留。只尝试有限的合格目录，避免仍等后台
+		# 返回同一批资源的切面，或继续坚持已经失去边缘覆盖的原生视野。
+		var cached := preload("res://scripts/rendering/tokyo_hlod_cached_cut.gd")
+		for index: int in cached.candidate_catalogs(_catalogs,_target_catalog,_committed_catalog,scale_value,_return_cache):
+			var catalog: Dictionary=_catalogs[index]
+			if not catalog.has("geometry") or not catalog.has("textures") or not catalog.has("bounds"): continue
+			next=cached.select(catalog,center,scale_value,_last_canvas.get_rotation(),_last_size,
+				_geometry,_stream._cache,_stream._textures,_selection_work)
+			if not next.is_empty() and _stage_prepared_motion(scale_value,[{"catalog":index,"cut":next}]):
+				staged=true;break
+		# HLOD也可能已经备好原生细档，只缺后台改切面的往返；复用最新目标档，
+		# 没有原生目标时尝试同一已认证细档，任何缺资源/超预算仍立即拒绝。
+		if not staged:
+			next={}
+			if _native!=null:
+				var configuration: String=String(_target.get("configuration","lod5_full")) if _target_catalog==-2 \
+					else String(_committed_cut.get("configuration","lod5_full")) if _committed_catalog==-2 else "lod5_full"
+				next=_native.select(center,scale_value,_last_canvas.get_rotation(),_last_size,
+					configuration,display_budget,{"meshes":_stream._cache,"textures":_stream._textures})
+	var elapsed := Time.get_ticks_usec()-started
+	cached_motion_selects+=1;cached_motion_select_peak_usec=maxi(cached_motion_select_peak_usec,elapsed)
+	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_cached_motion_select",elapsed)
+	if staged: return true
+	if next.is_empty(): return false
+	return _stage_prepared_motion(scale_value,[{"catalog":fixed if fixed>=0 else -2,"cut":next}])
+
+
+func _stage_prepared_motion(scale_value: float, proposals: Array = []) -> bool:
+	# 后台已算过的预测切面随资源一起保留。跨边界时只核验，不再等一次规划往返。
+	# 纯值候选没有显示权；仍必须通过最新机位、物理联合、清晰度和真实资源就绪门。
+	if not _guard_prefetch or not is_instance_valid(_stream): return false
+	for prepared: Dictionary in (_prepared_motion_cuts if proposals.is_empty() else proposals):
+		var selected: int=prepared.catalog
+		var next: Dictionary=prepared.cut
+		if selected!=-2 and (selected<0 or selected>=_catalogs.size()): continue
+		if preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_LOD_BLEND") \
+			and not Handoff.display_target_allowed(_catalogs,scale_value,_committed_catalog,selected): continue
+		var qualified := Handoff.native_qualified(next,scale_value) if selected==-2 else Handoff.qualified(_catalogs[selected],next,scale_value)
+		if not qualified or scale_value<float(next.get("anticipated_scale",0.0)): continue
+		if not Handoff.retain_display(next,true,true,display_budget,Contract.native_page_limit() if selected==-2 else 16): continue
+		if selected>=0 and not _resources_ready(next,selected) and _catalogs[selected].has("geometry"):
+			var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
+			if typeof(source)!=TYPE_OBJECT or not is_instance_valid(source): continue
+			var center: Vector2=_last_canvas.affine_inverse()*(source.get_viewport().get_visible_rect().size*0.5)
+			var visible := Contract.visible_subset(_catalogs[selected],next,center,scale_value,
+				_last_canvas.get_rotation(),_last_size,_selection_work)
+			# 只裁掉屏外保护页；完整目录覆盖、逐页清晰度和真实资源门仍在下方重验。
+			if visible.is_empty() or not Handoff.qualified(_catalogs[selected],visible,scale_value): continue
+			visible["guard_prefetch_keys"]=next.keys
+			next=visible
+		if not _resources_ready(next,selected) or not _cut_covers_current_view(next,selected): continue
+		var combined := _handoff_bytes(next,selected)
+		if combined<0 or combined>_stream.residency_limit-_stream.residency_bytes: continue
+		# 提交第一步仍要保留后续路径的预取意图，否则请求重建会回收刚读好的下一步。
+		next=next.duplicate()
+		next["prefetch_extra"]=Handoff.prefetch_requests(_catalogs,_target,_target_catalog)
+		next["path_prefetch_first"]=_return_cache
+		_target=next;_target_catalog=selected;_plan_revision+=1;_plan_dirty=true
+		_request_target(true)
+		_trace_prepared_state("prepared_motion",next,selected)
+		return true
+	return false
+
+
 func _cut_covers_current_view(cut: Dictionary, catalog: int, margin_px: float = 0.0) -> bool:
 	var coverage_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
 	var source: Variant = _source_ref.get_ref() if _source_ref!=null else null
@@ -1085,6 +1363,9 @@ func _cut_covers_current_view(cut: Dictionary, catalog: int, margin_px: float = 
 ## 且同类连续让出未达上限。
 func _heavy_contested(kind: StringName) -> bool:
 	if not map_frame_balance: return false
+	# 旧画面完整不等于输入已有响应。显式候选的镜头正在等地图时，
+	# 规划和提交不能再按“画面安全”让出；I/O/上传配额与物理预算仍照常。
+	if not _camera_demand.is_empty() and preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_DISPLAY_COMPACTION"): return false
 	var stepped := PerfBuckets.frame_has_physics_step() and is_inside_tree() and not get_tree().paused
 	return (_heavy_frame==Engine.get_process_frames() or stepped) and int(_heavy_runs.get(kind,0))<MAP_HEAVY_MAX_DEFER
 
@@ -1103,11 +1384,34 @@ func _heavy_slot(kind: StringName, deferrable: bool = true) -> bool:
 	return true
 
 
+func _summary_refinement_pending(scale_value: float) -> bool:
+	# 只稳定普通细节质量；相机仍由完整常驻模型直接放行，不能等待这个计时器。
+	if not _guard_prefetch or not _committed_cut.get("motion_summary",false) or _target.get("motion_summary",false) \
+		or not _committed_qualified(scale_value) or not _cut_covers_current_view(_committed_cut,_committed_catalog): return false
+	var logical := _last_size
+	var hint: Dictionary={}
+	var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
+	if typeof(source)==TYPE_OBJECT and is_instance_valid(source):
+		var viewport: Viewport=source.get_viewport()
+		logical=viewport.get_visible_rect().size
+		var camera: Camera2D=viewport.get_camera_2d()
+		if camera!=null: hint=camera.get_meta(&"map_return_hint",{})
+	if preload("res://scripts/rendering/tokyo_hlod_foundation.gd").motion_active(_pan_velocity,_zoom_rate,scale_value,logical,_last_size,hint):
+		_summary_refinement_ready_at=Time.get_ticks_msec()+150
+	return Time.get_ticks_msec()<_summary_refinement_ready_at
+
+
 func _commit_ready_target(scale_value: float) -> bool:
 	if _target.is_empty() or _target_committed(): return false
+	if preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_LOD_BLEND") \
+		and not Handoff.display_target_allowed(_catalogs,scale_value,_committed_catalog,_target_catalog): return false
+	# 新输入已经需要接替时不得等待渐变计时；当前旧视野完整不代表下一视野可达。
+	if not _lod_old_cut.is_empty():
+		if _camera_demand.is_empty() and _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog): return false
+		_end_lod_blend()
 	# 所有目标都必须重新证明此刻覆盖；异步期间相机可能已离开请求时的视野。
 	if not _target_covers_current_view(): return false
-	if _zooming_in and _target_catalog>=0 and _committed_catalog>=0 and _committed_qualified(scale_value) \
+	if _zooming_in and not _committed_cut.get("motion_summary",false) and _target_catalog>=0 and _committed_catalog>=0 and _committed_qualified(scale_value) \
 		and _cut_covers_current_view(_committed_cut,_committed_catalog) \
 		and Handoff.scale_limit(_catalogs[_target_catalog],_target)<Handoff.scale_limit(_catalogs[_committed_catalog],_committed_cut):
 		return false
@@ -1118,10 +1422,13 @@ func _commit_ready_target(scale_value: float) -> bool:
 		if not Handoff.native_qualified(_target,scale_value): return false
 	elif _target_catalog<0 or not Handoff.qualified(_catalogs[_target_catalog],_target,scale_value): return false
 	if not _resources_ready(_target,_target_catalog): return false
+	if _summary_refinement_pending(scale_value): return false
 	# 错峰：旧切面仍合格且覆盖当前视野时，交接可有界让给后续帧，让出期间旧画面完整可见。
 	# 覆盖核验有成本，只在本帧确实争用时才算；旧切面完整才让出。
 	var display_safe := _heavy_contested(&"commit") and not _committed.is_empty() \
 		and _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog)
+	# 已准备的共同有效区很窄；再错峰会错过过渡窗口。资源准备仍受原额度约束。
+	if _target.get("lod_blend_target",false): display_safe=false
 	if not _heavy_slot(&"commit",display_safe): return false
 	# 新地表租约先到手才释放旧画面；预约失败必须保持旧节点、可见性和旧租约。
 	var next_ground: RefCounted
@@ -1131,12 +1438,48 @@ func _commit_ready_target(scale_value: float) -> bool:
 			_fallback="waiting ground budget"
 			_handoff_reason="ground_budget"
 			return false
+	summary_motion_commits+=int(_target.get("motion_summary",false))
+	if _target.get("motion_summary",false): _summary_refinement_ready_at=Time.get_ticks_msec()+150
+	summary_motion_refinements+=int(_committed_cut.get("motion_summary",false) and _target_catalog!=_committed_catalog)
+	var blend := false
+	var blend_bytes := 0
+	if preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_LOD_BLEND") \
+		and _camera_demand.is_empty() \
+		and not _committed.is_empty() and (_committed_catalog!=_target_catalog or _committed_cut.get("configuration","")!=_target.get("configuration","")) \
+		and _committed_qualified(scale_value) and _cut_covers_current_view(_committed_cut,_committed_catalog):
+		blend_bytes=_handoff_bytes(_target,_target_catalog)
+		blend=Handoff.blend_allowed(_committed_cut,_target,blend_bytes,display_budget)
+		lod_blend_budget_skips+=int(not blend)
+	var old_nodes: Array[MeshInstance3D]=[]
+	var old_materials: Array[ShaderMaterial]=[]
+	var old_cut := _committed_cut
+	var old_catalog := _committed_catalog
+	var old_token: RefCounted
+	var retained_nodes := {}
+	if blend:
+		old_nodes=_nodes;_nodes=[]
+		old_materials=_page_materials;_page_materials=[]
+		if _ground_charged: old_token=_ground_token
+		_ground_charged=false
+	else: retained_nodes=_take_reusable_hlod_nodes()
 	_clear_current()
 	if next_ground!=null: _ground_token=next_ground
 	_cached_cut_commits+=int(_target.get("cache_bridge",false))
 	_native_screen_bridge_commits+=int(_target.get("native_screen_bridge",false))
 	_ground_charged=next_ground!=null
-	_bind_target()
+	_bind_target(retained_nodes)
+	if blend:
+		_lod_old_nodes=old_nodes;_lod_old_materials=old_materials;_lod_old_cut=old_cut
+		_lod_old_catalog=old_catalog;_lod_old_token=old_token;_lod_blend_age=0.0
+		_lod_blend_start_scale=scale_value;_lod_blend_amount=0.0
+		_lod_blend_started_usec=Time.get_ticks_usec()
+		for material: ShaderMaterial in _lod_old_materials:
+			material.set_shader_parameter("outgoing",true);material.set_shader_parameter("lod_mix",0.0)
+		for material: ShaderMaterial in _page_materials: material.set_shader_parameter("lod_mix",0.0)
+		lod_blends+=1
+		max_transition_triangles=maxi(max_transition_triangles,int(old_cut.triangles)+int(_committed_cut.triangles))
+		lod_blend_peak_pages=maxi(lod_blend_peak_pages,old_cut.keys.size()+_committed.size())
+		lod_blend_peak_bytes=maxi(lod_blend_peak_bytes,blend_bytes)
 	_request_target(false)
 	# 已在途的HLOD完成后，补一次曾推迟的候选选择；静止镜头也不能永久停在桥接档。
 	if _target_catalog>=0 and _ground_candidate_state.get("deferred",false):
@@ -1197,6 +1540,29 @@ func _handoff_bytes(next: Dictionary, selected: int) -> int:
 	return amount
 
 
+func _visible_target_keys() -> PackedStringArray:
+	var keys: PackedStringArray=_target.get("keys",PackedStringArray())
+	var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
+	if _target_catalog<0 or typeof(source)!=TYPE_OBJECT or not is_instance_valid(source): return keys
+	var logical: Vector2=source.get_viewport().get_visible_rect().size
+	var canvas: Transform2D=_camera_demand.get("canvas",_last_canvas)
+	var size: Vector2=_camera_demand.get("size",_last_size)
+	if logical.x<=0.0 or size.x<=0.0: return keys
+	var center := canvas.affine_inverse()*(logical*0.5)
+	return Contract.visible_keys(_target,center,canvas.x.length()*size.x/logical.x,canvas.get_rotation(),size)
+
+
+func _prioritized_target_keys(visible: PackedStringArray = PackedStringArray()) -> PackedStringArray:
+	if visible.is_empty(): visible=_visible_target_keys()
+	var keys: PackedStringArray=_target.get("keys",PackedStringArray())
+	var ordered := PackedStringArray()
+	for key: String in keys:
+		if key in visible: ordered.append(key)
+	for key: String in keys:
+		if key not in visible: ordered.append(key)
+	return ordered
+
+
 func _request_target(keep_current: bool) -> void:
 	var request_started := Time.get_ticks_usec()
 	var meshes := PackedStringArray()
@@ -1204,13 +1570,19 @@ func _request_target(keep_current: bool) -> void:
 	var mesh_pins := PackedStringArray()
 	var texture_pins := PackedStringArray()
 	textures.append_array(PackedStringArray(_target.get("ground_images",[])))
-	for key: String in _target.keys:
+	var visible := _visible_target_keys()
+	var visible_meshes := PackedStringArray()
+	var visible_images := PackedStringArray(_target.get("ground_images",[]))
+	for key: String in _prioritized_target_keys(visible):
 		if _target_catalog==-2:
 			meshes.append(key)
+			visible_meshes.append(key)
 		else:
 			var row: Dictionary = _catalogs[_target_catalog].rows[key]
 			meshes.append(row.native_geometry.path)
 			textures.append(row.native_texture.path)
+			if key in visible:
+				visible_meshes.append(row.native_geometry.path);visible_images.append(row.native_texture.path)
 	# 在附加预测之前保存真实目标，跨网格/图片的共享槽不能只按各自列表排序。
 	var charged_meshes := meshes.duplicate()
 	var charged_images := textures.duplicate()
@@ -1218,8 +1590,8 @@ func _request_target(keep_current: bool) -> void:
 	var prefetch_meshes := PackedStringArray()
 	_stream.touch_display_resources(meshes,textures)
 	if _stream.visible_io_first or _stream.fair_image_slot or _stream.visible_finalize_first or _stream.light_frame_balance:
-		_stream.visible_meshes=_stream._paths(meshes)
-		_stream.visible_images=textures.duplicate()
+		_stream.visible_meshes=_stream._paths(visible_meshes)
+		_stream.visible_images=visible_images
 	# 载入与战场始终同一池/同一固定集，不能进入游戏后立即淘汰预载资源。
 	var seen_meshes: Dictionary = {}
 	var seen_textures: Dictionary = {}
@@ -1247,7 +1619,27 @@ func _request_target(keep_current: bool) -> void:
 			charged_images.append(row.native_texture.path)
 	_prefetch_pages=0
 	var ground := int(_target.get("charges",{}).get("ground_bytes",0))+int(_committed_cut.get("charges",{}).get("ground_bytes",0))
+	if not _lod_old_cut.is_empty():
+		ground+=int(_lod_old_cut.get("charges",{}).get("ground_bytes",0))
+		texture_pins.append_array(PackedStringArray(_lod_old_cut.get("ground_images",[])))
+		charged_images.append_array(PackedStringArray(_lod_old_cut.get("ground_images",[])))
+		for key: String in _lod_old_cut.keys:
+			if _lod_old_catalog==-2:
+				mesh_pins.append(key);charged_meshes.append(key)
+			else:
+				var row: Dictionary=_catalogs[_lod_old_catalog].rows[key]
+				mesh_pins.append(row.native_geometry.path);charged_meshes.append(row.native_geometry.path)
+				texture_pins.append(row.native_texture.path);charged_images.append(row.native_texture.path)
 	var requests := Handoff.prefetch_requests(_catalogs,_target,_target_catalog)
+	if _return_cache and _geometry_aliases.has(_target_catalog):
+		var aliases: Array[Dictionary]=[]
+		for path: String in priority_meshes:
+			if _geometry_aliases[_target_catalog].has(path): aliases.append(_geometry_aliases[_target_catalog][path])
+		# 高速平移时当前路线先于尚未需要的更细网格；开始放大或低速时提前预热换档。
+		# 这里只排序同池预取，绝不延迟相机或降低已显示档的精度。
+		if _zoom_rate>0.02 or _pan_velocity.length()*output_scale<600.0:
+			aliases.append_array(requests);requests=aliases
+		else: requests.append_array(aliases)
 	var ledger: Dictionary=_stream.residency_request_ledger(ground)
 	var valid_ledger := not ledger.is_empty() and Handoff.append_streaming_bundle(ledger,_geometry,_textures,charged_meshes,charged_images,_stream.residency_limit)
 	for request: Dictionary in requests:
@@ -1259,6 +1651,44 @@ func _request_target(keep_current: bool) -> void:
 		if not seen_meshes.has(mesh_path): prefetch_meshes.append(mesh_path);seen_meshes[mesh_path]=true
 		if not image_path.is_empty() and not seen_textures.has(image_path): textures.append(image_path);seen_textures[image_path]=true
 		_prefetch_pages+=1
+	# 同一个已接纳请求集合里，最近预测视野先于旧档屏外保护页。
+	# 这里只更换队序，不改变目标切面、不废弃规划结果、也不增加槽或资源预算。
+	var urgent_meshes := visible_meshes.duplicate()
+	var urgent_images := visible_images.duplicate()
+	for prepared: Dictionary in _prepared_motion_cuts:
+		var index: int=prepared.catalog
+		if index<0 or index>=_catalogs.size(): continue
+		var outstanding := false
+		var candidate_meshes := PackedStringArray()
+		var candidate_images := PackedStringArray()
+		for key: String in prepared.cut.get("keys",PackedStringArray()):
+			var row: Dictionary=_catalogs[index].rows[key]
+			if row.native_texture.path not in urgent_images and row.native_texture.path in textures:
+				candidate_images.append(row.native_texture.path)
+				if not _stream._textures.has(row.native_texture.path): outstanding=true
+			if row.native_geometry.path not in urgent_meshes and (row.native_geometry.path in priority_meshes or row.native_geometry.path in prefetch_meshes):
+				candidate_meshes.append(row.native_geometry.path)
+				for path: String in _stream._paths(PackedStringArray([row.native_geometry.path])):
+					if not _stream._cache.has(path): outstanding=true
+		# 已完整驻留的近时刻不占用优先级，继续找到真正尚未就绪的最近路径。
+		if outstanding:
+			urgent_meshes.append_array(candidate_meshes);urgent_images.append_array(candidate_images)
+			break
+	var all_meshes := priority_meshes.duplicate();all_meshes.append_array(prefetch_meshes)
+	priority_meshes=PackedStringArray();prefetch_meshes=PackedStringArray()
+	for path: String in urgent_meshes:
+		if path in all_meshes: priority_meshes.append(path)
+	for path: String in all_meshes:
+		if path not in priority_meshes: prefetch_meshes.append(path)
+	var ordered_images := PackedStringArray()
+	for path: String in urgent_images:
+		if path in textures: ordered_images.append(path)
+	for path: String in textures:
+		if path not in ordered_images: ordered_images.append(path)
+	textures=ordered_images
+	if _stream.visible_io_first or _stream.fair_image_slot or _stream.visible_finalize_first or _stream.light_frame_balance:
+		_stream.visible_meshes=_stream._paths(priority_meshes)
+		_stream.visible_images=urgent_images
 	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_request_plan",Time.get_ticks_usec()-request_started)
 	var dispatch_started := Time.get_ticks_usec()
 	_stream.request_partitioned(priority_meshes,_stream.residency_meshes,prefetch_meshes,mesh_pins)
@@ -1268,7 +1698,30 @@ func _request_target(keep_current: bool) -> void:
 	if PerfBuckets.frame_trace_enabled: PerfBuckets.tick("tokyo_map_request_dispatch",Time.get_ticks_usec()-dispatch_started)
 
 
-func _bind_target() -> void:
+func _take_reusable_hlod_nodes() -> Dictionary:
+	# 所有显示门已通过后才转移所有权；中间没有await，旧页保持在原场景树位置。
+	var retained := {}
+	if not _return_cache or _target_catalog<0 or _target_catalog!=_committed_catalog: return retained
+	var keep_ids := {}
+	for key: String in _target.keys:
+		var nodes: Array=_hlod_binding_nodes.get(key,[])
+		var valid := not nodes.is_empty()
+		for value: Variant in nodes:
+			if typeof(value)!=TYPE_OBJECT or not is_instance_valid(value) or not value is MeshInstance3D:
+				valid=false;break
+			if value.get_parent()!=_city: valid=false;break
+		if not valid: continue
+		retained[key]=nodes.duplicate()
+		for value: Variant in nodes: keep_ids[value.get_instance_id()]=true
+	var disposable: Array[MeshInstance3D]=[]
+	for value: Variant in _nodes:
+		if typeof(value)!=TYPE_OBJECT or not is_instance_valid(value): continue
+		if not keep_ids.has(value.get_instance_id()): disposable.append(value as MeshInstance3D)
+	_nodes=disposable
+	return retained
+
+
+func _bind_target(retained_nodes: Dictionary = {}) -> void:
 	var binding_start := Time.get_ticks_usec()
 	var formal := ShaderMaterial.new()
 	formal.shader=_native_surface if _target_catalog==-2 else _formal_surface
@@ -1285,6 +1738,18 @@ func _bind_target() -> void:
 				if entry.path!=key: continue
 				_bind_native_entry(page,entry,formal,high)
 			continue
+		if retained_nodes.has(key):
+			# 来自本次同步交接的已验证节点；不重新创建地表网格、材质和实例RID。
+			var nodes: Array=retained_nodes[key]
+			for value: Variant in nodes:
+				if typeof(value)==TYPE_OBJECT and is_instance_valid(value) and value is MeshInstance3D:
+					_nodes.append(value as MeshInstance3D)
+					var material: Material=value.material_override
+					if material is ShaderMaterial and not _page_materials.has(material): _page_materials.append(material)
+			_hlod_binding_nodes[key]=nodes
+			reused_hlod_pages+=1
+			continue
+		var node_start := _nodes.size()
 		var row: Dictionary = _catalogs[_target_catalog].rows[key]
 		var component: Resource = _stream.resource(row.native_geometry.path)
 		var shading := ShaderMaterial.new()
@@ -1304,6 +1769,8 @@ func _bind_target() -> void:
 			_page_materials.append(building_shading)
 		_nodes.append(_add_mesh(component.meshes[0],building_shading,false))
 		_nodes.append(_add_mesh(component.meshes[1],high,false))
+		_hlod_binding_nodes[key]=_nodes.slice(node_start)
+		created_hlod_pages+=1
 	_committed=_target.keys.duplicate()
 	_committed_catalog=_target_catalog
 	_committed_cut=_target
@@ -1351,14 +1818,71 @@ func _bind_ground_surface(replacement: Dictionary) -> void:
 	_nodes.append(ground_node)
 
 
+func _stage_lod_successor(scale_value: float) -> bool:
+	if _pan_velocity.length()*scale_value>600.0: return false
+	if not _lod_old_cut.is_empty() or not _committed_cut.has("lod_successor"): return false
+	var successor: Dictionary=_committed_cut.lod_successor
+	var direction: int=successor.direction
+	if direction*_zoom_rate<=0.02 or direction*(scale_value-float(successor.scale))<0.0: return false
+	var next: Dictionary=successor.cut
+	var selected: int=successor.catalog
+	var qualified := Handoff.native_qualified(next,scale_value) if selected==-2 else Handoff.qualified(_catalogs[selected],next,scale_value)
+	if not qualified or not _cut_covers_current_view(next,selected) or not _resources_ready(next,selected): return false
+	var combined := _handoff_bytes(next,selected)
+	if combined<0 or combined>_stream.residency_limit-_stream.residency_bytes: return false
+	_target=next.duplicate();_target["lod_blend_target"]=true
+	# 成对切面交接后仍保留原反向入口；快速反转不必等待后台重建同一对已准备资源。
+	# 剥掉旧后继，只保留一份反向切面，防止往返次数变成递归增长的历史链。
+	if selected!=_committed_catalog and successor.has("reverse_scale"):
+		var reverse_cut := _committed_cut.duplicate()
+		reverse_cut.erase("lod_successor")
+		_target["lod_successor"]={"catalog":_committed_catalog,"cut":reverse_cut,
+			"direction":-direction,"scale":successor.reverse_scale,"reverse_scale":successor.scale}
+	_target_catalog=selected;_plan_revision+=1;_plan_dirty=true
+	_request_target(true)
+	return true
+
+
+func _step_lod_blend(scale_value: float, _delta: float) -> bool:
+	if _lod_old_cut.is_empty(): return false
+	# 这是显示过渡，不随战斗慢动作拉长，也不等待模拟恢复后才清理旧页。
+	_lod_blend_age=maxf(0.0,float(Time.get_ticks_usec()-_lod_blend_started_usec)/1000000.0)
+	var qualified := Handoff.native_qualified(_lod_old_cut,scale_value) if _lod_old_catalog==-2 \
+		else Handoff.qualified(_catalogs[_lod_old_catalog],_lod_old_cut,scale_value)
+	if _lod_blend_age>=0.09 or not _camera_demand.is_empty() or not qualified or not _cut_covers_current_view(_lod_old_cut,_lod_old_catalog):
+		_end_lod_blend()
+		if not _target.is_empty(): _request_target(not _target_committed())
+		return true
+	# 快速滚轮可能在90ms内穿过整个共同有效区；按剩余尺度同步完成，不能半途硬切。
+	var boundary := float(_lod_old_cut.get("lod_blend_floor",0.0)) if _lod_old_catalog==-2 \
+		else Handoff.scale_limit(_catalogs[_lod_old_catalog],_lod_old_cut)
+	_lod_blend_amount=maxf(_lod_blend_amount,Handoff.blend_progress(_lod_blend_age,_lod_blend_start_scale,scale_value,boundary))
+	var amount := _lod_blend_amount
+	for material: ShaderMaterial in _lod_old_materials: material.set_shader_parameter("lod_mix",amount)
+	for material: ShaderMaterial in _page_materials: material.set_shader_parameter("lod_mix",amount)
+	return true
+
+
+func _end_lod_blend() -> void:
+	if _lod_old_cut.is_empty(): return
+	for value: Variant in _lod_old_nodes:
+		if typeof(value)==TYPE_OBJECT and is_instance_valid(value): value.free()
+	_lod_old_nodes.clear();_lod_old_materials.clear();_lod_old_cut={};_lod_old_catalog=-1
+	if _lod_old_token!=null and is_instance_valid(_stream): _stream.release_auxiliary(_lod_old_token.get_instance_id())
+	_lod_old_token=null
+	for material: ShaderMaterial in _page_materials:
+		material.set_shader_parameter("outgoing",false);material.set_shader_parameter("lod_mix",1.0)
+
+
 func _clear_current() -> void:
+	_end_lod_blend()
 	_plan_revision+=1
 	display_qualified=false;display_covered=false
 	var clear_started := Time.get_ticks_usec() if PerfBuckets.frame_trace_enabled else 0
 	_display_grace=false;_grace_started=-1;_grace_age_ms=0
 	for node in _nodes:
 		if is_instance_valid(node): node.free()
-	_nodes.clear();_page_materials.clear();_committed.clear()
+	_nodes.clear();_hlod_binding_nodes.clear();_page_materials.clear();_committed.clear()
 	_committed_catalog=-1
 	_committed_cut={}
 	_native_hidden.clear()
@@ -1391,13 +1915,21 @@ func _sync_legacy() -> void:
 
 
 func _deactivate() -> void:
+	_end_lod_blend()
 	super._deactivate()
 	display_qualified=false;display_covered=false
+	_camera_demand={};_camera_wait_started=-1
+	_camera_motion_hint={}
+	_prepared_motion_cuts=[]
+	if is_instance_valid(_stream): _stream.input_waiting=false
 	_sync_legacy()
 
 
 func _exit_tree() -> void:
-	if _map_worker!=null: _map_worker.close()
+	var retired: Array=[_catalogs,_geometry,_textures,_selection_work,_foundation,_prepared_stream_source]
+	if _native!=null: retired.append_array(_native.retirement_data())
+	if _map_worker!=null: _map_worker.close(retired)
+	if is_instance_valid(_metadata_retirement): _metadata_retirement.hold(retired)
 	if _future_predictor!=null: _future_predictor.close()
 	_clear_current()
 	if is_instance_valid(_stream): _stream.close()
@@ -1406,12 +1938,15 @@ func _exit_tree() -> void:
 func debug_state() -> Dictionary:
 	var ready := _committed.size()
 	return {"active":_active,"enabled":_enabled,"hlod":true,"fallback":_fallback,"cut_ready":_target_committed(),
+		"lod_blends":lod_blends,"lod_blend_budget_skips":lod_blend_budget_skips,"lod_blend_peak_pages":lod_blend_peak_pages,"lod_blend_peak_bytes":lod_blend_peak_bytes,
+		"reused_hlod_pages":reused_hlod_pages,"created_hlod_pages":created_hlod_pages,
 		"staged_switches":staged_switches,"max_transition_triangles":max_transition_triangles,
 		"handoff_reason":_handoff_reason,"native_page_limit":Contract.native_page_limit(),
 		"prefetch_pages":_prefetch_pages,
 		"map_frame_balance":map_frame_balance,"heavy_deferrals":heavy_deferrals,"heavy_deferrals_by_kind":heavy_deferrals_by_kind.duplicate(),
 		"map_planning":{"mode":_plan_mode,"worker":_map_worker.summary() if _map_worker!=null else {},
-			"prepare_usec":_plan_prepare_usec,"submit_usec":_plan_submit_usec,"admission_usec":_plan_admission_usec,
+			"setup_stages_usec":_setup_stages,
+			"prepare_usec":_plan_prepare_usec,"prepare_stages_usec":_plan_prepare_stages,"submit_usec":_plan_submit_usec,"admission_usec":_plan_admission_usec,
 			"applied":_plan_applied,"rejected":_plan_rejected,"pending_frames":_plan_pending_frames,"stats":_plan_stats},
 		"loading_neighborhood_bytes":loading_neighborhood_bytes,"loading_neighborhood_pinned":loading_neighborhood,
 		"resident_foundation":resident_foundation,"foundation_cut":_committed_cut.get("foundation",false),
@@ -1419,8 +1954,11 @@ func debug_state() -> Dictionary:
 		"speculative_plan_reuses":speculative_plan_reuses,
 		"async_prefetch":{} if _future_predictor==null else {"submitted":_future_predictor.submitted,"applied":_future_predictor.applied,"fallback":_future_predictor.fallback,"prepare_usec":_future_predictor.prepare_usec,"discarded":_future_predictor.worker.discarded,"rejections":_future_predictor.rejections,"center_samples":_future_predictor.center_samples},
 		"cached_cut_attempts":_cached_cut_attempts,"cached_cut_commits":_cached_cut_commits,
+		"cached_motion_selects":cached_motion_selects,"cached_motion_select_peak_usec":cached_motion_select_peak_usec,
+		"summary_motion_commits":summary_motion_commits,"summary_motion_refinements":summary_motion_refinements,"summary_motion_adoptions":summary_motion_adoptions,
 		"native_screen_bridge_commits":_native_screen_bridge_commits,
 		"native_screen_bridge_state":_native_screen_bridge_state.duplicate(),
+		"camera_wait_frames":camera_wait_frames,"camera_wait_max_ms":camera_wait_max_ms,
 		"committed_catalog":_committed_catalog,"display_budget":display_budget,"display_bytes":int(_committed_cut.get("bytes",0)),
 		"display_qualified":display_qualified,"display_covered":display_covered,
 		"lod_grace_active":_display_grace,"lod_grace_frames":lod_grace_frames,"max_lod_grace_ms":max_lod_grace_ms,"max_lod_grace_ratio":max_lod_grace_ratio,
@@ -1448,16 +1986,21 @@ func debug_state() -> Dictionary:
 
 
 func _prepare_map_planner() -> bool:
+	if _prepared_source_ready: return true
+	_geometry_aliases=Handoff.shared_texture_meshes(_catalogs) if _return_cache else {}
 	if _native is GridNative or OS.get_environment("AGL_TOKYO_SYNC_SELECTION")=="1":
 		_plan_mode="legacy_grid" if _native is GridNative else "explicit_sync_control"
 		return true
 	var started := Time.get_ticks_usec()
-	_plan_readiness=OS.get_environment("AGL_TOKYO_CACHED_CUT")=="1"
+	_plan_readiness=_return_cache or OS.get_environment("AGL_TOKYO_CACHED_CUT")=="1"
 	var prepared := {}
 	for catalog: Dictionary in _catalogs:
+		if catalog.get("transition_only",false): continue
 		var artifact := PreparedCatalog.load_or_build(catalog)
 		if artifact.is_empty(): return false
 		prepared[catalog.identity.path]=artifact
+	_plan_prepare_stages["prepared_catalogs"]=Time.get_ticks_usec()-started
+	var phase_started := Time.get_ticks_usec()
 	# Physical identity was verified during package loading. Keep costs and dependency keys,
 	# never duplicate vertex/UV/index arrays into the planner.
 	var geometry := {}
@@ -1473,15 +2016,27 @@ func _prepare_map_planner() -> bool:
 		geometry[path]={"components":parts}
 	var textures := {}
 	for path: String in _textures: textures[path]={"charge":int(_textures[path].charge)}
+	_plan_prepare_stages["descriptors"]=Time.get_ticks_usec()-phase_started
+	phase_started=Time.get_ticks_usec()
+	var native_snapshot: Dictionary=_native.selection_snapshot() if _native!=null else {}
+	_plan_prepare_stages["native_snapshot"]=Time.get_ticks_usec()-phase_started
 	var source := {"catalogs":_catalogs,"prepared_catalogs":prepared,"geometry":geometry,"textures":textures,
-		"foundation":_foundation,"bounds":_archive.bounds,"native":_native.selection_snapshot() if _native!=null else {},
+		"foundation":_foundation,"bounds":_archive.bounds,"native":native_snapshot,
 		"context":{"background":true,"epoch":0,"display_limit":display_budget,"native_page_limit":Contract.native_page_limit()},
 		"flags":{"small_uploads":_small_uploads,"actual_before_native":OS.get_environment("AGL_TOKYO_ACTUAL_BEFORE_NATIVE")=="1",
+			"lod_transition":preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_LOD_BLEND"),
+			"share_selection_source":preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_BACKGROUND_SOURCE"),
+			"display_compaction":preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_DISPLAY_COMPACTION"),
+			"wide_motion_guard":preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_WIDE_HANDOFF")=="1",
+			"guard_prefetch":_guard_prefetch,
+			"return_cache":_return_cache,
 			"cached_cut":OS.get_environment("AGL_TOKYO_CACHED_CUT")=="1","native_screen_bridge":OS.get_environment("AGL_TOKYO_NATIVE_SCREEN_BRIDGE")=="1"}}
 	_map_worker=MapWorker.new()
+	phase_started=Time.get_ticks_usec()
 	if not _map_worker.configure(source,_plan_generation):
 		_map_worker=null
 		return false
+	_plan_prepare_stages["worker_configure"]=Time.get_ticks_usec()-phase_started
 	_plan_prepare_usec=Time.get_ticks_usec()-started
 	_plan_mode="prepared_background"
 	return true
@@ -1489,20 +2044,50 @@ func _prepare_map_planner() -> bool:
 
 func _planning_request(scale_value: float, zooming_out: bool) -> Dictionary:
 	var source: Variant=_source_ref.get_ref()
-	var ready_meshes := {}
-	var ready_images := {}
+	var viewport: Viewport=source.get_viewport()
+	var camera := viewport.get_camera_2d()
+	var logical := viewport.get_visible_rect().size
+	# 控制器声明的是逻辑 zoom，选页使用输出像素倍率；缩放视口不能直接套 0.2。
+	var prediction_floor := float(camera.get_meta(&"map_prediction_zoom_floor",0.0))*_last_size.x/logical.x \
+		if camera!=null and logical.x>0.0 else 0.0
+	var ready_meshes: Variant={}
+	var ready_images: Variant={}
+	var planned_meshes: Variant={}
+	var planned_images: Variant={}
 	# Snapshot only key sets. Actual resources and their reference counts stay on the main thread.
-	if _plan_readiness:
+	if _return_cache:
+		# 字符串数组保持纯值快照；哈希集合在后台恢复，主线程不逐键递归复制 Dictionary。
+		ready_meshes=PackedStringArray(_stream._cache.keys())
+		ready_images=PackedStringArray(_stream._textures.keys())
+		planned_meshes=_stream._wanted.duplicate()
+		planned_meshes.append_array(PackedStringArray(_stream._pending.keys()))
+		planned_images=_stream._texture_wanted.duplicate()
+		planned_images.append_array(PackedStringArray(_stream._texture_jobs.keys()))
+	elif _plan_readiness:
 		for key: String in _stream._cache: ready_meshes[key]=true
 		for key: String in _stream._textures: ready_images[key]=true
+	elif _guard_prefetch:
+		# 主动概括只需要常驻根的实际就绪键；不每次复制整个细节缓存。
+		for path: String in _stream.residency_meshes:
+			for part: String in _geometry.get(path,{}).get("components",{path:{}}):
+				if _stream._cache.has(part): ready_meshes[part]=true
+		for path: String in _stream.residency_images:
+			if _stream._textures.has(path): ready_images[path]=true
 	_plan_sequence+=1
-	return {"sequence":_plan_sequence,"revision":_plan_revision,"canvas":_last_canvas,"size":_last_size,
-		"logical":source.get_viewport().get_visible_rect().size,"scale":scale_value,"zooming_out":zooming_out,
-		"pan_velocity":_pan_velocity,"zoom_rate":_zoom_rate,"committed_catalog":_committed_catalog,
+	# 平移/放大被连续性门截住时，后台应准备待提交机位；缩远则逐步经过实际中间档。
+	var pending_pose := not _camera_demand.is_empty() and (_committed_catalog==-2 or float(_camera_demand.get("scale",scale_value))>=scale_value or (preload("res://scripts/rendering/tokyo_installed_map.gd").motion_admission_enabled("AGL_TOKYO_DISPLAY_COMPACTION")))
+	return {"sequence":_plan_sequence,"revision":_plan_revision,"canvas":_camera_demand.canvas if pending_pose else _last_canvas,
+		"size":_camera_demand.size if pending_pose else _last_size,
+		"display_canvas":_last_canvas,"display_size":_last_size,"display_scale":scale_value,
+		"logical":logical,"scale":_camera_demand.scale if pending_pose else scale_value,"zooming_out":zooming_out,
+		"prediction_floor":prediction_floor,
+		"return_hint":camera.get_meta(&"map_return_hint",{}) if _guard_prefetch and camera!=null else {},
+		"camera_demand":pending_pose,"pan_velocity":_camera_demand.get("velocity",_pan_velocity),
+		"zoom_rate":_camera_demand.get("rate",_zoom_rate),"committed_catalog":_committed_catalog,
 		"committed":MapPlanner.compact_cut(_committed_cut),"target_catalog":_target_catalog,"target":MapPlanner.compact_cut(_target),
 		"stream":{"residency_limit":_stream.residency_limit,"residency_bytes":_stream.residency_bytes,
 			"residency_meshes":_stream.residency_meshes.duplicate(),"residency_images":_stream.residency_images.duplicate(),
-			"_cache":ready_meshes,"_textures":ready_images}}
+			"_cache":ready_meshes,"_textures":ready_images,"planned_meshes":planned_meshes,"planned_images":planned_images}}
 
 
 func _step_prepared_selection(scale_value: float, zooming_out: bool, reversing_in: bool, rapid_zoom: bool, current_covered: bool, changed: bool) -> bool:
@@ -1545,6 +2130,7 @@ func _step_prepared_selection(scale_value: float, zooming_out: bool, reversing_i
 func _trace_prepared_state(kind: String, next: Dictionary = {}, selected: int = -1, request: Dictionary = {}) -> void:
 	if not _trace_selection or _selection_trace.size()>=2048: return
 	_selection_trace.append({"kind":kind,"frame":Engine.get_process_frames(),"ticks_msec":Time.get_ticks_msec(),
+		"planning_worker":_map_worker.summary() if _map_worker!=null else {},"next_checkpoint":next.get("motion_checkpoint",false),
 		"scale":output_scale,"center":_motion_center,"canvas":_last_canvas,"zoom_rate":_zoom_rate,"pan_velocity":_pan_velocity,
 		"revision":_plan_revision,"request_revision":request.get("revision",-1),"request_canvas":request.get("canvas",Transform2D.IDENTITY),
 		"request_pan_velocity":request.get("pan_velocity",Vector2.ZERO),"request_scale":request.get("scale",0.0),"request_zoom_rate":request.get("zoom_rate",0.0),
@@ -1564,6 +2150,8 @@ func _trace_prepared_state(kind: String, next: Dictionary = {}, selected: int = 
 		"target_ready":_resources_ready(_target,_target_catalog) if not _target.is_empty() else false,
 		"target_union":_handoff_bytes(_target,_target_catalog) if not _target.is_empty() else -1,
 		"next_catalog":selected,"next":next.get("keys",[]).duplicate(),"next_bytes":next.get("bytes",0),
+		"next_prefetch_catalog":next.get("prefetch_catalog",-1),"next_prefetch":next.get("prefetch_keys",[]).duplicate(),
+		"next_prefetch_extra":next.get("prefetch_extra",[]).duplicate(),
 		"next_guard":next.get("spatial_guard_px",0),"next_anticipated":next.get("anticipated_scale",0),
 		"next_stage":next.get("selection_stage",""),"next_bridge":next.get("handoff_bridge",false),"next_trim_lead":next.get("trim_lead_world",Vector2.ZERO),
 		"next_motion_need":next.get("motion_guard_need_px",0.0),
@@ -1577,6 +2165,8 @@ func _trace_prepared_state(kind: String, next: Dictionary = {}, selected: int = 
 
 
 func _admit_prepared_plan(plan: Dictionary, request: Dictionary, scale_value: float, current_covered: bool, changed: bool) -> bool:
+	# 调用处已核验来源代数和显示修订；四份当前路径与两份突发回中纯值切面。
+	if _guard_prefetch: _prepared_motion_cuts=plan.get("prepared_cuts",[]).slice(0,16 if _return_cache else 8)
 	var next: Dictionary=plan.cut
 	var selected: int=plan.catalog
 	var handoff_budget: int=_stream.residency_limit-_stream.residency_bytes
@@ -1593,18 +2183,67 @@ func _admit_prepared_plan(plan: Dictionary, request: Dictionary, scale_value: fl
 		return true
 	var qualified := Handoff.native_qualified(next,scale_value) if selected==-2 else selected>=0 and Handoff.qualified(_catalogs[selected],next,scale_value)
 	var covered := qualified and _cut_covers_current_view(next,selected)
+	# 待提交机位不一定与当前画面相交；只有当前显示仍完整合格时才可在原预算内暂存它。
+	var pending_motion := false
+	var pending_bridge_scale := scale_value
+	# 连续输入会每帧改变需求；不能要求后台请求与最新姿态逐位相等，否则永远接纳不了。
+	# 过期请求只作为候选，按最新需求重新证明资格和覆盖后才暂存。
+	if request.get("camera_demand",false) and not _camera_demand.is_empty() \
+		and _committed_qualified(scale_value) and current_covered:
+		var saved_canvas := _last_canvas
+		var saved_size := _last_size
+		var poses: Array[Transform2D]=[_camera_demand.canvas]
+		var source: Variant=_source_ref.get_ref() if _source_ref!=null else null
+		if next.get("motion_checkpoint",false) and typeof(source)==TYPE_OBJECT and is_instance_valid(source):
+			var logical: Vector2=source.get_viewport().get_visible_rect().size
+			var from_center := saved_canvas.affine_inverse()*(logical*0.5)
+			var to_center: Vector2=_camera_demand.canvas.affine_inverse()*(logical*0.5)
+			for fraction: float in CameraController.MAP_MOTION_FRACTIONS:
+				var canvas := Transform2D(lerp_angle(saved_canvas.get_rotation(),_camera_demand.canvas.get_rotation(),fraction),Vector2.ZERO)
+				canvas=canvas.scaled(Vector2.ONE*lerpf(saved_canvas.x.length(),_camera_demand.canvas.x.length(),fraction))
+				canvas.origin=logical*0.5-canvas*from_center.lerp(to_center,fraction)
+				poses.append(canvas)
+		for canvas: Transform2D in poses:
+			_last_canvas=canvas;_last_size=_camera_demand.size
+			var pending_scale: float=float(_camera_demand.scale)*canvas.x.length()/_camera_demand.canvas.x.length()
+			pending_motion=(Handoff.native_qualified(next,pending_scale) if selected==-2 \
+				else selected>=0 and Handoff.qualified(_catalogs[selected],next,pending_scale)) \
+				and _cut_covers_current_view(next,selected)
+			# 每个中间机位同时核验放大前探。终点当前合格但即将过期时，
+			# 继续尝试较小的一步，不能先选终点、再在循环外拒绝整个可行事务。
+			if pending_motion and selected>=0 and next.get("handoff_bridge",false):
+				pending_motion=Handoff.qualified(_catalogs[selected],next,
+					pending_scale*exp(clampf(float(_camera_demand.get("rate",_zoom_rate))*0.25,0.0,0.7)))
+			if pending_motion: pending_bridge_scale=pending_scale;break
+		_last_canvas=saved_canvas;_last_size=saved_size
 	var anticipated := next.has("anticipated_scale") and _committed_qualified(scale_value) and current_covered
-	if not next.get("within_budget",false) or not qualified or (not covered and not anticipated):
+	if not next.get("within_budget",false) or (not qualified and not pending_motion) \
+		or (not covered and not anticipated and not pending_motion):
 		_plan_rejected+=1;_plan_dirty=true
 		return changed
-	if selected>=0 and next.get("handoff_bridge",false) and not _handoff_bridge_qualified(selected,next,scale_value):
-		_plan_rejected+=1;_plan_dirty=true
-		return changed
+	if selected>=0 and next.get("handoff_bridge",false):
+		# 暂存目标属于待显示机位，不能拿仍停在近景的旧尺度否决缩远桥接。
+		# 使用最新需求及其放大前探重新验资格；实际绑定仍由提交入口独立核验。
+		var bridge_scale: float=pending_bridge_scale if pending_motion else scale_value
+		var bridge_rate: float=_camera_demand.get("rate",_zoom_rate) if pending_motion else _zoom_rate
+		if not Handoff.qualified(_catalogs[selected],next,bridge_scale*exp(clampf(bridge_rate*0.25,0.0,0.7))):
+			_plan_rejected+=1;_plan_dirty=true
+			return changed
 	_ground_candidate_state=plan.ground_candidate
 	_native_screen_bridge_state=plan.native_screen_bridge
 	if plan.force_replan: _plan_dirty=true
 	_plan_applied+=1
+	if next.get("motion_summary",false) and selected==_committed_catalog and next.keys==_committed:
+		# 已绑定的远景无需重新拆装；仍登记运动资格，停止后才能执行稳定恢复门。
+		summary_motion_adoptions+=int(not _committed_cut.get("motion_summary",false))
+		_committed_cut["motion_summary"]=true
+		_summary_refinement_ready_at=Time.get_ticks_msec()+150
 	_refresh_native_guard_metadata(next,selected)
+	if next.has("lod_successor") and selected==_committed_catalog and next.keys==_committed \
+		and next.get("configuration","")==_committed_cut.get("configuration","") \
+		and next.get("masks",{})==_committed_cut.get("masks",{}):
+		_committed_cut["lod_successor"]=next.lod_successor
+		if _target_committed(): _target["lod_successor"]=next.lod_successor
 	if selected==_target_catalog and _target.get("keys")==next.keys and _target.get("anticipated_scale",0.0)==next.get("anticipated_scale",0.0) \
 		and (selected!=-2 or (_target.get("masks")==next.masks and _target.get("ground_images",PackedStringArray())==next.get("ground_images",PackedStringArray()))) \
 		and not Handoff.prefetch_changed(_target,next,selected): return changed

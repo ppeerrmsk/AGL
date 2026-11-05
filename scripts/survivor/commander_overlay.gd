@@ -1,6 +1,7 @@
 class_name CommanderOverlay
 extends Node2D
 
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
 const TrianglePacket = preload("res://scripts/rendering/canvas_triangle_packet.gd")
 
 ## 指挥 UAV 视觉效果：影响范围圈 + 数据链连接线
@@ -17,6 +18,7 @@ const DIAMOND_COLOR := Color(0.3, 0.8, 0.9, 0.5)   ## 端点菱形
 const DESTROY_FADE_DURATION := 3.0  ## 与 Aircraft._destroy_timer 初值一致
 
 func _ready() -> void:
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_commander = get_parent() as Aircraft
 	_aura = _commander.get_node_or_null("CommanderAura") as CommanderAura
 	queue_redraw()  # 初次画光环圈
@@ -71,7 +73,7 @@ func _draw_datalinks(alpha_mult: float) -> void:
 	for ac in _aura.buffed_aircraft:
 		if not is_instance_valid(ac) or ac.is_destroyed:
 			continue
-		var local_pos := to_local(ac.global_position)
+		var local_pos := (DisplayPacing.display_global_transform(_commander) * transform).affine_inverse() * DisplayPacing.display_origin(ac)
 		var dist := local_pos.length()
 		if dist < 1.0:
 			continue

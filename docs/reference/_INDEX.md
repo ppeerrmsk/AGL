@@ -58,11 +58,20 @@
 
 ### 实施与生产流程
 
+- [2026-11-01 返回菜单与镜头开发记录](../audits/2026-11-01-menu-return-and-camera.md)：编辑器/游戏现场区分、C52–C66 尝试与否决理由、三对输入及回收终态；保留人工 F5 待确认边界。
+- [2026-11-01 东京档位交接复核](../audits/2026-11-01-tokyo-lod-transition.md)：原精度过渡、同倍率跳档、边界预测与纹理队列交接；保留各版本失败、三轮操作和普通配置证据。
+
+- [2026-10-31 东京加载及回中复核](../audits/2026-10-31-tokyo-loading-return.md)：启动依赖、后台准备与绘制预热的三对证据；近景回中候选及剩余等待分开记录。
 - [playbook.md](playbook.md)：新增内容的总入口。
 - [skill-implementation-index.md](skill-implementation-index.md) / [skill-table.md](skill-table.md)：技能实现模式 / 自动生成现状表。
 - [playable-aircraft-workflow.md](playable-aircraft-workflow.md)：新增玩家机流程。
 - [map-pipeline.md](map-pipeline.md) / [manual-map-editing.md](manual-map-editing.md) / [vector-map-production-playbook.md](vector-map-production-playbook.md)：地图生产路径。
 - [三地图3D工程手册](../systems/map-volume-engineering.md)：工序复用、GL技术依据、实验留档与否决路线；不替代各图spec。
+- [2026-10-28 东京流送优化复盘](../audits/2026-10-28-map-streaming-optimization-lessons.md)：对比 main 已有经验，区分显示/输入/性能门，保存缓存三轮指标与后续实验条件；属于候选时间点证据，非默认验收。
+- [2026-10-29 东京远景概括复核](../audits/2026-10-29-tokyo-far-summary.md)：固定远景常驻、同源三轮、六轮输入与未通过的严格性能；附本次专用人工 F5 入口。
+- [2026-10-29 东京SPACE回中停顿](../audits/2026-10-29-tokyo-space-return.md)：按用户纠正以操作停顿为主；复现默认预算互等导致秒级停镜，验证候选三轮真实返回，单列剩余短顿与人工F5。
+- [2026-10-29 东京输入连续性复核](../audits/2026-10-29-tokyo-input-continuity.md)：路径切面保留、回中预热、三轮对照与七分钟追加追踪；保留未复现的49.536ms呈现尖峰和人工F5边界。
+- [2026-10-31 东京移动清晰度恢复](../audits/2026-10-31-tokyo-clarity.md)：用户否决 v4 运动降清晰度；撤下粗化默认、恢复原 M20 精度，记录 WASD/SPACE 显示复核与未解决的等待。
 - [i18n.md](i18n.md)：本地化 key、分表与构建流程。
 - [cinematic-authoring.md](cinematic-authoring.md)：表演与登场演出的编排方法。
 - [performance-guidelines.md](performance-guidelines.md)：热路径硬规则与验证剖面。
@@ -95,3 +104,17 @@
 ## 海洋三维地图
 
 第三张图的源数据、离线高程和分区验收见 [海洋三维规格](../specs/systems/ocean-volume-map.md)；代码定位见 [Script Index](script-index.md#海洋三维地图) 与 [Code Index](code-index.md#海洋三维地图)。
+
+## 狗斗发射窗口复核
+
+[2026-11-01 狗斗发射窗口](../audits/2026-11-01-dogfight-launch-window.md)：原战斗日志根因、玩家追击姿态修复与专项/全量证据。
+
+## 飞机挂载接合复核
+
+[2026-11-01 全机型挂载接合](../audits/2026-11-01-aircraft-mount-fit.md)：实际表面接合、母鹅结构臂、全目录多视图和真实批次验证，保留性能未过及默认回归结果。
+
+## 城市地面尺度与摆位
+
+[2026-11-01 地面复核](../audits/2026-11-01-ground-scale-placement.md)：普通车辆米制缩放、同源楼体占地与连续路径避让，功能/视觉、全量超时及严格60FPS分别记录。
+
+- [舰船巡航与东京海岸复核](../audits/2026-11-01-naval-shore-safety.md)：富津实际岸面、船体避岸、窄水域驻泊及外海巡航。

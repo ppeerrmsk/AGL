@@ -115,6 +115,7 @@ var _squad_watch_timer: float = 0.0        ## 0.5s 周期的阵亡检测/弹窗�
 var _squad_known_alive: Array = []         ## 上周期存活成员快照（检测 alive→destroyed 沿）
 var _pending_bonus_upgrades: int = 0       ## 待弹的奖励升级数（黑匣子回收/地勤优化）
 var _dock_settlement_open: bool = false    ## 本次结算面板是否由停靠打开（地勤优化判起飞）
+var _dock_decision_committed: bool = false ## 权威提交锁：本次停靠只能兑现一个分支
 
 ## ── 阶段制（2026-05-09）──
 ## 兼容 HUD / Debug / 天气的公开属性；规则层持有可被生涯商店延长的真实时长。
@@ -255,6 +256,7 @@ var _bench_render_frames: int = 0
 var _bench_render_delta_sum: float = 0.0
 var _bench_render_delta_max: float = 0.0
 var _bench_render_frames_below_60: int = 0
+var _bench_render_wall_clock: RefCounted
 var _bench_frame_trace_started: bool = false
 var _bench_weather_capture_done: bool = false
 var _bench_hyper_a_lifecycle_stage: int = 0
@@ -353,6 +355,7 @@ func _notification(what: int) -> void:
 
 
 var _orion_prior_kills: int = 0
+
 
 func _ready() -> void:
 	# 确保 SurvivorMode 在所有子节点（含 AI 控制器）之前执行
@@ -2762,7 +2765,7 @@ func _bench_force_spawn_boss_mg() -> void:
 		BENCH_PLAYER_LEVEL, BENCH_BOSS_MG_FRIENDLY_COUNT])
 
 
-## Wraith 最坏正式层：四机本体 + 首败后两架 YF-23 支援，与 12 架常规友军同窗。
+## Wraith 最坏正式层：六机本体 + 首败后两架 YF-23 支援，与 12 架常规友军同窗。
 func _bench_force_spawn_boss_wraith_stress() -> void:
 	if _spawner == null:
 		return
@@ -2786,7 +2789,7 @@ func _bench_force_spawn_boss_wraith_stress() -> void:
 	for member in encounter.get_display_members():
 		if member is Aircraft:
 			(member as Aircraft).invulnerable = true
-	print("[Bench] boss_wraith_stress: Wraith/4 + YF-23/2 + 12 friendlies")
+	print("[Bench] boss_wraith_stress: Wraith/6 + YF-23/2 + 12 friendlies")
 
 
 ## CSG 最坏正式层：首败后 13 舰强化编成、接战 F/A-18，以及真实沉航母后四机
@@ -3755,11 +3758,11 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	match event.button_index:
 		MOUSE_BUTTON_WHEEL_UP:
 			if event.pressed:
-				_camera_ctrl.handle_zoom_input(1.0 + CameraController.ZOOM_STEP)
+				_camera_ctrl.handle_zoom_input(CameraController.ZOOM_IN_FACTOR)
 				if is_instance_valid(_tutorial): _tutorial.notify_zoom()
 		MOUSE_BUTTON_WHEEL_DOWN:
 			if event.pressed:
-				_camera_ctrl.handle_zoom_input(1.0 - CameraController.ZOOM_STEP)
+				_camera_ctrl.handle_zoom_input(CameraController.ZOOM_OUT_FACTOR)
 				if is_instance_valid(_tutorial): _tutorial.notify_zoom()
 		MOUSE_BUTTON_LEFT:
 			if event.pressed:
@@ -4121,6 +4124,11 @@ func _on_nav_cleared() -> void:
 
 func _process(delta: float) -> void:
 	var frame_trace_scenario := _bench_tracks_render_performance()
+	if frame_trace_scenario:
+		if _bench_render_wall_clock == null:
+			_bench_render_wall_clock = preload("res://scripts/tests/map_frame_clock.gd").new()
+		# 单调墙钟保留调度/呈现长停顿；引擎 delta 不能替代真实帧间隔。
+		_bench_render_wall_clock.observe(_bench_elapsed >= 3.0 and not _bench_finished)
 	if frame_trace_scenario and _bench_elapsed >= 3.0 and not _bench_frame_trace_started:
 		_bench_frame_trace_started = true
 		PerfBuckets.configure_frame_trace(true)
@@ -4461,6 +4469,9 @@ func _physics_process_survivor_untraced(delta: float) -> void:
 				summary += "render_frames=%d avg_fps=%.2f p1_fps=%.2f worst_frame_fps=%.2f frames_below_60=%d\n" % [
 					_bench_render_frames, average_fps, p1_fps, worst_fps,
 					_bench_render_frames_below_60]
+				var wall: Dictionary = _bench_render_wall_clock.report() if _bench_render_wall_clock != null else {"passed": false, "samples": 0}
+				summary += "render_wall_clock=" + JSON.stringify(wall) + "\n"
+				summary += "render_strict_60_passed=%s\n" % str(wall.passed and _bench_render_frames > 0 and _bench_render_frames_below_60 == 0)
 				summary += _bench_camera_patrol_summary()
 				summary += _bench_final_war_summary()
 				if _bench_atmosphere_experiment != null \
@@ -4495,7 +4506,7 @@ func _physics_process_survivor_untraced(delta: float) -> void:
 						interceptor_count += 1
 						interceptor_refs.append(aircraft)
 						var assigned_raw: Variant = aircraft.get_meta(
-							"bomber_intercept_target", null)
+							"bomber_intercept_target", false)
 						if typeof(assigned_raw) == TYPE_OBJECT and assigned_raw != null \
 								and is_instance_valid(assigned_raw) and assigned_raw is Aircraft \
 								and not (assigned_raw as Aircraft).is_destroyed:
@@ -4972,6 +4983,7 @@ func _finish_radar_window() -> void:
 						the_target.apply_status(StatusEffects.SLOW, 3.0)
 					if int(upgrade_stacks.get("sig_ea18g", 0)) > 0:
 						the_target.apply_status(StatusEffects.JAM, 3.0)
+						SkillHooks.on_jam_target_hit(first, the_target)
 
 	# 玩家可见锁定状态整体重建：清零紧贴汇总（配对片与上方收束均不读这三项），
 	# 窗口内其余物理步始终看到上一窗口的完整结果，不会出现中途清零的空窗。
@@ -6502,8 +6514,8 @@ func _on_zone_mission_failed(zone_id: StringName, reason: String) -> void:
 #  切片简化：ACE = player_aircraft（长机）；僚机默认跟随王牌变同款（§2.3）。
 # ══════════════════════════════════════════════
 
-## 打开停靠规划站：保留当前机并装备专属技能，或进化到新机体，严格二选一。
-## 进化出口可能全锁（等级门槛）→ 仍显示灰卡；当前机专属技始终展示其许可/装备状态。
+## 打开停靠规划站：整备或增加僚机；无可用进化时整备改为维修并领取可用专属技。
+## 进化出口可能全锁（等级/三轴门槛）→ 改为维修；专属状态仍由详情与维修卡明确展示。
 func _open_evolution_offer() -> void:
 	# 停靠规划站会暂停战场并接管指针；必须先退出急刹捕获，即使随后因玩家引用
 	# 异常提前返回，也不能把系统鼠标留在 MOUSE_MODE_CAPTURED。
@@ -6528,8 +6540,8 @@ func _open_evolution_offer() -> void:
 		_evolution_ui = EvolutionUI.new()
 		add_child(_evolution_ui)
 		_evolution_ui.evolution_chosen.connect(_on_settlement_evolution)
-		_evolution_ui.signature_chosen.connect(_on_settlement_signature)
-		_evolution_ui.closed.connect(_on_settlement_closed)
+		_evolution_ui.repair_chosen.connect(_on_settlement_repair)
+		_evolution_ui.wingman_chosen.connect(_on_settlement_wingman)
 	is_paused_for_upgrade = true
 	AudioManager.set_music_muffled(true)
 	# 暂停与淡入交给表演导演（时间的唯一入口）
@@ -6550,10 +6562,33 @@ func _open_evolution_offer() -> void:
 	_evolution_ui.show_offer(EvolutionSystem.node_of(cur_id), exits, lvl, signature,
 		signature_license_owned, signature_equipped, history,
 		survivor_player.axis_points if survivor_player else {},
-		survivor_player.milestone_bonus if survivor_player else {})
+		survivor_player.milestone_bonus if survivor_player else {},
+		not archive_enabled() or MetaShop.is_owned(MetaShop.ITEM_DOCK_WINGMAN),
+		_squad_members_alive().size() < 9)
+
+## 只有真实停靠事务能提交；先净化对象，再读取其状态，拒绝关闭后延迟/重复信号。
+func _dock_decision_available() -> bool:
+	if not _dock_settlement_open or _dock_decision_committed or is_game_over:
+		return false
+	var ac: Variant = player_aircraft
+	var progression: Variant = survivor_player
+	return typeof(ac) == TYPE_OBJECT and is_instance_valid(ac) and ac is Aircraft \
+		and not ac.is_destroyed and typeof(progression) == TYPE_OBJECT \
+		and is_instance_valid(progression)
+
+## 整备在换型/技能/里程碑重放完成后按最终生命上限结算；僚机分支不调用。
+func _repair_docked_squad() -> void:
+	var healed := 0
+	for member in _squad_members_alive():
+		if member is Aircraft and member.params:
+			member.hp = member.params.max_hp
+			healed += 1
+	EventLogger.log_event("DOCK", "SquadHealed", "n=%d" % healed)
 
 ## 规划站·进化栏：ACE 手动进化 + 僚机自动跟随同款（spec ace-system §2.3）。成功后结束本次停靠。
 func _on_settlement_evolution(node_id: StringName) -> void:
+	if not _dock_decision_available():
+		return
 	var nd: Dictionary = EvolutionSystem.node_of(node_id)
 	if nd.is_empty():
 		_evolution_ui.reject_decision()
@@ -6571,7 +6606,9 @@ func _on_settlement_evolution(node_id: StringName) -> void:
 		return
 	# 武器库快照（spec inrun-weapon-inventory）：换型前把机上特殊武器（含强化）收进玩家武器库
 	survivor_player.record_special_weapons()
+	_dock_decision_committed = true
 	if not EvolutionSystem.evolve(player_aircraft, node_id, false, archive_enabled()):
+		_dock_decision_committed = false
 		_evolution_ui.reject_decision()
 		return
 	# 主角档案引用同步（三轴里程碑覆写 / 专属技能筛选 / 品类身份跟新机型走）
@@ -6606,31 +6643,57 @@ func _on_settlement_evolution(node_id: StringName) -> void:
 	if _zone_hint:
 		_zone_hint.show_temp(tr("EVOLUTION_DONE_FMT") % tr(String(nd.get("name_key", ""))), 4.0)
 	EventLogger.log_event("DOCK", "EvolutionDecision", "%s→%s" % [current_id, node_id])
+	_repair_docked_squad()
 	_on_settlement_closed()
 
-## 规划站·保留当前机：装备本机专属技能，不发普通 +1 轴点；技能自身 milestone_plus 仍照常兑现。
-func _on_settlement_signature(upgrade: Dictionary) -> void:
+## 无可用进化才允许保留机体整备；许可/已装备/占位仅影响附赠专属，不阻断维修。
+func _on_settlement_repair() -> void:
+	if not _dock_decision_available():
+		return
 	var current_id := _current_evolution_node_id()
-	var expected := SurvivorData.signature_upgrade_for_aircraft(current_id)
+	if EvolutionSystem.has_available_exit(current_id, survivor_player.level, survivor_player.axis_points):
+		_evolution_ui.reject_decision()
+		return
+	_dock_decision_committed = true
+	var upgrade := SurvivorData.signature_upgrade_for_aircraft(current_id)
 	var uid := String(upgrade.get("id", ""))
-	if expected.is_empty() or uid != String(expected.get("id", "")):
-		_evolution_ui.reject_decision()
-		return
-	if archive_enabled() and not MetaShop.is_signature_owned_for_aircraft(current_id):
-		_evolution_ui.reject_decision()
-		return
-	if int(upgrade_stacks.get(uid, 0)) >= int(upgrade.get("max_stacks", 1)):
-		_evolution_ui.reject_decision()
-		return
-	_apply_upgrade_choice(upgrade)
-	EventLogger.log_event("DOCK", "SignatureDecision", "%s/%s" % [current_id, uid])
-	if player_aircraft and is_instance_valid(player_aircraft):
+	var signature_ready := not upgrade.is_empty() and not SurvivorData.is_signature_placeholder(upgrade) \
+		and (not archive_enabled() or MetaShop.is_signature_owned_for_aircraft(current_id)) \
+		and int(upgrade_stacks.get(uid, 0)) < int(upgrade.get("max_stacks", 1))
+	if signature_ready:
+		_apply_upgrade_choice(upgrade)
 		player_aircraft.show_tactic_popup(tr("SETTLEMENT_SIGNATURE_EQUIPPED_POPUP_FMT") % tr(
 			String(upgrade.get("name", ""))))
+	_repair_docked_squad()
+	EventLogger.log_event("DOCK", "RepairDecision", "%s signature=%s" % [
+		current_id, uid if signature_ready else "none"])
+	_on_settlement_closed()
+
+## 停靠增员只授予一架，不调用战区奖励的满编武器兜底，也不维修既有飞机。
+func _on_settlement_wingman() -> void:
+	if not _dock_decision_available():
+		return
+	if (archive_enabled() and not MetaShop.is_owned(MetaShop.ITEM_DOCK_WINGMAN)) \
+			or not _player_profile or _ensure_player_squad() == null \
+			or _squad_members_alive().size() >= 9:
+		_evolution_ui.reject_decision()
+		return
+	_dock_decision_committed = true
+	var before := _squad_members_alive().size()
+	_spawn_reward_wingman()
+	if _squad_members_alive().size() != before + 1:
+		_dock_decision_committed = false
+		_evolution_ui.reject_decision()
+		return
+	if _zone_hint:
+		_zone_hint.show_temp(tr("DOCK_WINGMAN_GRANTED"), 3.0)
+	EventLogger.log_event("DOCK", "WingmanDecision", "alive=%d" % (before + 1))
 	_on_settlement_closed()
 
 ## 规划站关闭：恢复游戏（镜像升级 UI 的收尾：解暂停 + 鼠标状态归零防直飞）
 func _on_settlement_closed() -> void:
+	if not _dock_settlement_open or not _dock_decision_committed:
+		return
 	is_paused_for_upgrade = false
 	AudioManager.set_music_muffled(false)
 	_set_hard_brake(false)
@@ -7165,38 +7228,31 @@ func _claim_weapon_reward(weapon: String) -> void:
 		survivor_player.record_special_weapons()
 	EventLogger.log_event("DOCK", "WeaponReward", weapon)
 
-## 停靠成功 → 停靠结算（spec zone-reward-docking §2.2，修订 2026-07-24）：
-## 回血 + 打开进化面板。战区奖励已在攻克瞬间即领（_grant_reward_now），此处不再领奖。
-func _on_dock_docked(dock: DockPoint) -> void:
+## 停靠成功 → 整备 / 增加僚机决策；确认选择前不维修、不发奖。
+## 战区奖励仍在攻克瞬间即领（_grant_reward_now）。
+func _on_dock_docked(dock_value: Variant) -> void:
+	if typeof(dock_value) != TYPE_OBJECT or not is_instance_valid(dock_value) or not dock_value is DockPoint:
+		return
+	var dock := dock_value as DockPoint
+	if _dock_settlement_open or is_game_over or dock.is_spent() \
+			or not is_instance_valid(player_aircraft) or player_aircraft.is_destroyed:
+		return
+	if int(dock.get_meta("settled_landing_serial", -1)) == dock.landing_serial:
+		return
+	if dock.dock_kind == "carrier" and _zone_data and _zone_data.carrier_uses_left <= 0:
+		return
 	EventLogger.log_event("DOCK", "SettlementOpen", dock.display_name_key)
 	_dock_settlement_open = true
+	_dock_decision_committed = false
+	dock.set_meta("settled_landing_serial", dock.landing_serial)
 	# 生涯档案：停机计数（按 dock_kind 分机场/航母；Debug 临时机场不污染档案）
 	if archive_enabled() and dock.dock_kind != "debug_airfield":
 		CareerArchive.record_docking(dock.dock_kind)
-	# 回血（spec 修订 2026-07-24：回血 = 停靠功能，与进化同在机场/航母）：全队满血
-	var healed := 0
-	for u in CombatUnit.all_units:
-		if u is Aircraft and u.is_player_squad() and not u.is_destroyed:
-			var acu := u as Aircraft
-			if acu.params:
-				acu.hp = acu.params.max_hp
-				healed += 1
-	EventLogger.log_event("DOCK", "SquadHealed", "n=%d" % healed)
-	# 停靠必送 1 架僚机（用户 2026-07-24：每次停靠——机场/航母不除外——复制一架王牌机入队）；
-	# 满编 9 则跳过（不降级，停靠僚机是额外福利，不是奖励 roll）。
-	# 生涯商店门控（career-shop §3.2）：正式局需购入 dock_wingman 才送；
-	# 非正式局（bench/boss debug）视为已拥有，保旧行为与回归确定性
-	var dock_wingman_active: bool = not archive_enabled() \
-			or MetaShop.is_owned(MetaShop.ITEM_DOCK_WINGMAN)
-	if dock_wingman_active and _player_profile and _ensure_player_squad() != null \
-			and _squad_members_alive().size() < 9:
-		_spawn_reward_wingman()
-		if _zone_hint:
-			_zone_hint.show_temp(tr("DOCK_WINGMAN_GRANTED"), 3.0)
+	# 2026-10-24：停靠只开启事务；维修、进化与僚机由互斥选择提交后发放。
 	_evolution_pending = false
 	if _zone_hint:
 		_zone_hint.hide_persistent()
-	# 航母停靠：扣全局登舰次数（限 2 次，用尽即南撤；spec §2.4）。回血已由上方全队处理。
+	# 航母停靠：扣全局登舰次数（限 2 次，用尽即南撤；spec §2.4）。
 	if dock.dock_kind == "carrier":
 		if _zone_data:
 			_zone_data.carrier_uses_left = maxi(0, _zone_data.carrier_uses_left - 1)

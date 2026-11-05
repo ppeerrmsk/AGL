@@ -25,6 +25,7 @@ func run(root: Node) -> int:
 	for ac in controller.get_members():
 		ac.set_physics_process(false)
 	CombatUnit.all_units.assign([player] + controller.get_members())
+	_fail += await preload("res://scripts/tests/orion_presentation_case.gd").run(root, controller, player)
 	controller.engage()
 	controller._rail_cooldown = 100.0
 	controller.update(0.01)

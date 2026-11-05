@@ -26,6 +26,7 @@ var player: Aircraft = null        ## 兜底/手动注入（mode 为空时用）
 var _hold: float = 0.0
 var _player_inside: bool = false
 var _armed: bool = true
+var landing_serial: int = 0  ## 每次真实着陆递增；防航母同一次着陆的迟到信号重复结算。
 ## 一次性机场（spec zone-reward-docking §2.2 修订）：airfield 停靠一次即失效——
 ## 标记消失（主图/Tab 都不再画）+ 不再判定停靠。carrier 不置 spent（走自己的限 2 次登舰机制）。
 ## 机场的 ALLY 防空驻军（_spawn_airfield_garrison 独立实体）不受影响，原地保留。
@@ -91,6 +92,7 @@ func _process(delta: float) -> void:
 		if _hold >= hold_need:
 			_hold = 0.0
 			_armed = false
+			landing_serial += 1
 			EventLogger.log_event("DOCK", "Docked", "%s kind=%s" % [display_name_key, dock_kind])
 			docked.emit(self)
 	else:

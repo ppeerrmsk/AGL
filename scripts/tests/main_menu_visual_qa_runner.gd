@@ -23,6 +23,11 @@ func _ready() -> void:
 		await RenderingServer.frame_post_draw
 
 		_audit_menu(menu, locale, failures)
+		# 连续渲染帧检查外壳实际像素，防止只验节点存在而漏掉重建丢绘。
+		for frame in range(8):
+			await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			_audit_shell_pixels(menu, locale, frame, failures)
 		var image := get_viewport().get_texture().get_image()
 		var locale_path := "res://bench/results/main_menu_visual_%s.png" % locale
 		var error := image.save_png(locale_path)
@@ -40,7 +45,21 @@ func _ready() -> void:
 	for failure in failures:
 		push_error("[main_menu_visual] %s" % failure)
 	print("[main_menu_visual] locales=%d failures=%d" % [LOCALES.size(), failures.size()])
-	get_tree().quit(0 if failures.is_empty() else 1)
+	AudioManager.request_quit(0 if failures.is_empty() else 1)
+
+
+func _audit_shell_pixels(menu: Node, locale: String, frame: int, failures: Array[String]) -> void:
+	var shell := menu.find_child("CrtDisplayShell", true, false) as Control
+	if shell == null:
+		return # 节点缺失由几何审计报告。
+	var image := get_viewport().get_texture().get_image()
+	var image_rect := Rect2i(Vector2i.ZERO, image.get_size())
+	for point in [Vector2(80, 100), Vector2(1200, 100), Vector2(80, 670), Vector2(1200, 670)]:
+		var sample := Vector2i(shell.get_global_transform_with_canvas() * point)
+		var color := image.get_pixelv(sample) if image_rect.has_point(sample) else Color.BLACK
+		if absf(color.r - 22.0 / 255.0) > 0.015 or absf(color.g - 27.0 / 255.0) > 0.015:
+			failures.append("[%s] frame=%d 机壳像素缺失：%s %s" % [locale, frame, sample, color])
+	print("[main_menu_visual] locale=%s shell_pixel_frame=%d" % [locale, frame])
 
 
 func _audit_menu(menu: Node, locale: String, failures: Array[String]) -> void:

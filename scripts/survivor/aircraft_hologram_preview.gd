@@ -1,15 +1,15 @@
 class_name AircraftHologramPreview
 extends Control
 
-## 选机页静态全息投影。只在候选项变化时换纹理，不创建可战斗 Aircraft，
-## 轮廓与正式 AircraftRenderer 共用 AircraftSilhouetteCatalog。
+## 选机页静态全息投影。与进化树共用 AircraftModelPreview，
+## 候选项变化时才更新；锁定态清空三层模型，不创建可战斗 Aircraft。
 
-const AircraftSilhouetteCatalogScript := preload("res://scripts/aircraft_silhouette_catalog.gd")
+const ModelPreview := preload("res://scripts/survivor/aircraft_model_preview.gd")
 const TerminalUiStyleScript := preload("res://scripts/ui/terminal_ui_style.gd")
 
-var _ghost_left: TextureRect
-var _ghost_right: TextureRect
-var _model: TextureRect
+var _ghost_left: ModelPreview
+var _ghost_right: ModelPreview
+var _model: ModelPreview
 var _airframe_label: Label
 var _link_label: Label
 var _locked: bool = false
@@ -51,24 +51,20 @@ func _draw() -> void:
 
 func show_profile(profile: PlayableAircraft, index: int, total: int) -> void:
 	_locked = false
-	var texture: Texture2D = null
 	var airframe_name := ""
 	if profile != null:
 		airframe_name = tr(profile.display_name)
-		if profile.base_params != null:
-			texture = AircraftSilhouetteCatalogScript.texture_for_display_name(
-				profile.base_params.display_name)
-	_set_model_texture(texture)
+	_set_model_profile(profile)
 	_airframe_label.text = airframe_name if not airframe_name.is_empty() \
 		else tr("SLOT_NAME_UNKNOWN")
 	_link_label.text = tr("AIRCRAFT_HOLOGRAM_LINK_FMT") % [index + 1, total] \
-		if texture != null else tr("AIRCRAFT_HOLOGRAM_NO_DATA")
+		if _has_model else tr("AIRCRAFT_HOLOGRAM_NO_DATA")
 	queue_redraw()
 
 
 func show_locked(index: int, total: int) -> void:
 	_locked = true
-	_set_model_texture(null)
+	_set_model_profile(null)
 	_airframe_label.text = tr("AIRCRAFT_HOLOGRAM_LOCKED")
 	_link_label.text = tr("AIRCRAFT_HOLOGRAM_LOCKED_SLOT_FMT") % [index + 1, total]
 	queue_redraw()
@@ -122,15 +118,13 @@ func _build_children() -> void:
 	add_child(_link_label)
 
 
-func _make_model_layer(offset: Vector2, alpha: float) -> TextureRect:
-	var layer := TextureRect.new()
+func _make_model_layer(offset: Vector2, alpha: float) -> ModelPreview:
+	var layer := ModelPreview.new()
 	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	layer.offset_left = 18.0 + offset.x
 	layer.offset_top = 38.0 + offset.y
 	layer.offset_right = -18.0 + offset.x
 	layer.offset_bottom = -66.0 + offset.y
-	layer.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	layer.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	layer.modulate = Color(TerminalUiStyleScript.accent(), alpha)
 	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -138,11 +132,11 @@ func _make_model_layer(offset: Vector2, alpha: float) -> TextureRect:
 	return layer
 
 
-func _set_model_texture(texture: Texture2D) -> void:
-	_has_model = texture != null
+func _set_model_profile(profile: PlayableAircraft) -> void:
 	for layer in [_ghost_left, _ghost_right, _model]:
-		layer.texture = texture
-		layer.visible = texture != null
+		layer.show_profile(profile)
+		layer.visible = layer.has_model()
+	_has_model = _model.has_model()
 
 
 func _draw_corner_brackets(accent: Color) -> void:

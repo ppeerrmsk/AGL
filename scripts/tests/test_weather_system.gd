@@ -22,6 +22,7 @@ func run() -> void:
 	_test_ocean_distribution()
 	_test_runtime_consumers()
 	_test_volume_geometry()
+	_test_cloud_columns()
 	print("WeatherSystem: %s (%d fail)" % ["PASS" if _fail == 0 else "FAIL", _fail])
 
 
@@ -45,6 +46,69 @@ func _test_volume_geometry() -> void:
 		_check(finite,"云高度有限且在预算内")
 		vertex_count += a.size()
 	_check(vertex_count > 0,"测试确实构造云面")
+	weather.free()
+
+
+func _test_cloud_columns() -> void:
+	var weather := WeatherSystem.new()
+	var mask := PackedByteArray()
+	mask.resize(4096)
+	for i in mask.size(): mask[i] = i % 256
+	for config: Dictionary in [
+		{"seed":271828,"coverage":0.26,"frequency":0.00024,"secondary_mix":0.25},
+		{"seed":314159,"coverage":0.20,"frequency":0.00024,"secondary_mix":0.70,"mask":mask},
+	]:
+		weather.apply_ugc_config(config)
+		weather._prepare_cloud_columns()
+		var identical := true
+		var visible_cells := 0
+		for x in range(-38, 39):
+			for y in range(-2, 3):
+				var expected := PackedFloat64Array()
+				for row in range(y * 32, (y + 1) * 32):
+					var cy := row * WeatherSystem.SPRITE_SPACING
+					var density := weather._cloud_density_at(x * WeatherSystem.SPRITE_SPACING, cy)
+					if density > WeatherSystem.MIN_DENSITY:
+						expected.append(cy)
+						expected.append(density)
+				var key := Vector2i(x, y)
+				identical = identical and weather._cloud_column(key) == expected
+				identical = identical and weather._cloud_column(key) == expected
+				visible_cells += expected.size() / 2
+		_check(identical and visible_cells > 0, "云缓存冷/热命中与原始正负坐标噪声逐值等价", str(visible_cells))
+	# 实际 draw 的边界筛选：负坐标、分段边缘和非整数终点均保持原 x→y 顺序。
+	var exact_order := true
+	for bounds: Rect2 in [Rect2(-4340, -2380, 8421, 4607), Rect2(0, -4480, 140, 8960), Rect2(-140, -140, 279.9, 279.9)]:
+		var direct := PackedFloat64Array()
+		var cx := bounds.position.x
+		while cx <= bounds.end.x:
+			var cy := bounds.position.y
+			while cy <= bounds.end.y:
+				var density := weather._cloud_density_at(cx, cy)
+				if density > WeatherSystem.MIN_DENSITY: direct.append_array(PackedFloat64Array([cx, cy, density]))
+				cy += WeatherSystem.SPRITE_SPACING
+			cx += WeatherSystem.SPRITE_SPACING
+		var cached := PackedFloat64Array()
+		for column in range(roundi(bounds.position.x / 140.0), floori(bounds.end.x / 140.0) + 1):
+			for chunk in range(floori(bounds.position.y / 4480.0), floori(bounds.end.y / 4480.0) + 1):
+				var cells := weather._cloud_column(Vector2i(column, chunk))
+				for index in range(0, cells.size(), 2):
+					if cells[index] >= bounds.position.y and cells[index] <= bounds.end.y:
+						cached.append_array(PackedFloat64Array([column * 140.0, cells[index], cells[index + 1]]))
+		exact_order = exact_order and direct == cached
+	_check(exact_order, "云窗口边界及透明叠加顺序完全一致")
+	mask[0] = 17
+	weather.ugc_mask = mask
+	weather._prepare_cloud_columns()
+	_check(weather._cloud_columns.is_empty(), "mask 原地修改后失效")
+	weather.cloud_coverage = 1.0
+	weather._prepare_cloud_columns()
+	_check(weather._cloud_columns.is_empty() and weather._cloud_column(Vector2i.ZERO).is_empty(), "直接修改云量清除旧缓存")
+	for i in range(WeatherSystem.MAX_CLOUD_COLUMNS + 5):
+		weather._cloud_column(Vector2i(i, 0))
+	_check(weather._cloud_columns.size() == WeatherSystem.MAX_CLOUD_COLUMNS, "云缓存长期移动保持固定容量")
+	weather.apply_ugc_config({"seed": 7, "coverage": 0.1})
+	_check(weather._cloud_columns.is_empty(), "重新配置不复用旧云层")
 	weather.free()
 
 

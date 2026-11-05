@@ -5,7 +5,10 @@ const MAX_REQUESTS := 2
 static var _busy: Dictionary = {}
 ## 已确认存在的资源路径（只存字符串）；跨流实例共享，避免重复查询文件系统。
 static var _known_resources: Dictionary = {}
+var fast_file_probe := false
+var fast_file_probe_hits := 0
 var _owner_ref: WeakRef
+var _metadata_retirement: Node
 var _descriptors: Dictionary = {}
 var _wanted := PackedStringArray()
 var _pins := PackedStringArray()
@@ -51,6 +54,7 @@ var _light_defer_run := 0
 
 
 func configure(owner_node: Node, descriptors: Dictionary) -> void:
+	_metadata_retirement=preload("res://scripts/rendering/tokyo_metadata_retirement.gd").attach(self)
 	_audit_paths = OS.get_environment("AGL_TOKYO_STREAM_AUDIT") == "1"
 	_retain_unused = OS.get_environment("AGL_TOKYO_RETAIN_UNUSED") == "1"
 	_owner_ref = weakref(owner_node)
@@ -190,7 +194,7 @@ func _collect_completed() -> void:
 			if status == ResourceLoader.THREAD_LOAD_FAILED:
 				# 已终结失败请求也要领取，以释放引擎内请求槽；绝不领取仍IN_PROGRESS的项。
 				ResourceLoader.load_threaded_get(path)
-			_failures[path] = "background load failed"
+			if not _failures.has(path): _failures[path] = "background load failed"
 		_frame_collected += 1
 		if _frame_collected>=_pipeline_width or _collection_usec+Time.get_ticks_usec()-completion_start>=1000: break
 	_collection_usec += Time.get_ticks_usec()-completion_start
@@ -232,8 +236,15 @@ func _process_stream() -> void:
 		var exists_started := Time.get_ticks_usec() if trace else 0
 		# 已确认存在的路径会话内复用（每次 exists 要查文件系统，实测 0.5–2.6ms/帧）；
 		# 未确认的路径照常检查，缺失仍记失败。
-		var exists := _known_resources.has(path) or ResourceLoader.exists(path)
-		if exists:
+		var deferred_probe := _defer_resource_probe(path)
+		var exists := _known_resources.has(path) or deferred_probe
+		# 原生文件可直接确认；导出重映射/导入资源未找到原文件时仍走资源管理器。
+		# 这里只省存在查询，实际加载和身份/预算校验继续走原流程。
+		if not exists and fast_file_probe and not path.begins_with("uid://"):
+			exists=FileAccess.file_exists(path)
+			fast_file_probe_hits+=int(exists)
+		if not exists: exists=ResourceLoader.exists(path)
+		if exists and not deferred_probe:
 			_known_resources[path] = true
 		if trace:
 			PerfBuckets.tick("tokyo_map_stream.exists", Time.get_ticks_usec() - exists_started)
@@ -260,6 +271,10 @@ func _process_stream() -> void:
 	peak_total_bytes = maxi(peak_total_bytes, _bytes + _reserved + _auxiliary_bytes)
 	if not waiting and _pending.is_empty():
 		set_process(false)
+
+
+func _defer_resource_probe(_path: String) -> bool:
+	return false
 
 
 func _request_load(path: String) -> Error:
@@ -318,6 +333,11 @@ func _exit_tree() -> void:
 		if not _main_thread_meshes: ResourceLoader.load_threaded_get(path)
 		_busy.erase(path)
 	_pending.clear();_main_queued.clear();_reserved=0
+	if is_instance_valid(_metadata_retirement): _metadata_retirement.hold(_retirement_data())
+
+
+func _retirement_data() -> Array:
+	return [_descriptors]
 
 
 func summary() -> Dictionary:
@@ -329,6 +349,7 @@ func summary() -> Dictionary:
 		"started": started, "completed": completed, "discarded": discarded, "closed": _closed,
 		"failures": _failures.duplicate(), "max_take_usec": max_take_usec,
 		"light_frame_deferrals": light_frame_deferrals,
+		"fast_file_probe": fast_file_probe, "fast_file_probe_hits": fast_file_probe_hits,
 		"path_audit_enabled": _audit_paths, "path_requests": _audit_requests.duplicate(),
 		"retain_unused": _retain_unused, "retained_completions": retained_completions,
 		"path_evictions": _audit_evictions.duplicate(),

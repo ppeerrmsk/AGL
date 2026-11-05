@@ -1266,6 +1266,56 @@
       },
       "runtime_integration": "formal_default_pending_validation"
     },
+    "orion_final_form": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "ORION"
+        ],
+        "source_path": "res://docs/specs/bosses/orion-final-form.md",
+        "source_symbol": "ORION final form and FANG concept",
+        "license": "AGL project-authored",
+        "fidelity": "按用户 BOSS 设计原创；待多视图与正式实战验收"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "implementation_pending_visual_qa",
+      "production_batch": "L",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation",
+      "mount_fit_evidence": "docs/audits/2026-11-01-aircraft-mount-fit.md"
+    },
+    "orion_fang": {
+      "reference": {
+        "kind": "project_concept",
+        "aliases": [
+          "FANG",
+          "FANG-1",
+          "FANG-2"
+        ],
+        "source_path": "res://docs/specs/bosses/orion-final-form.md",
+        "source_symbol": "ORION final form and FANG concept",
+        "license": "AGL project-authored",
+        "fidelity": "按用户 BOSS 设计原创；待多视图与正式实战验收"
+      },
+      "aliases_source": "res://scripts/aircraft_silhouette_catalog.gd::LEGACY_MODEL_KEYS",
+      "production_status": "implementation_pending_visual_qa",
+      "production_batch": "L",
+      "editable_source": "res://scripts/experiments/volume_aircraft_catalog.gd",
+      "qa": {
+        "top": true,
+        "side": true,
+        "front": true,
+        "gameplay": true
+      },
+      "runtime_integration": "formal_default_pending_validation",
+      "mount_fit_evidence": "docs/audits/2026-11-01-aircraft-mount-fit.md"
+    },
     "x09": {
       "reference": {
         "kind": "project_concept",

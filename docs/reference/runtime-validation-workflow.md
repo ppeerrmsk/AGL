@@ -18,6 +18,9 @@ bench\run.cmd all 1 300 Shadow Headless
 只能通过 `bench/run.cmd` 或 `bench/run.sh` 启动 Godot。wrapper 对每个场景统一执行版本检查、Shadow
 隔离、原子锁、有限超时、进程树回收和运行时错误扫描；不再接受“Godot exit 0，但输出里有红错”。
 
+wrapper 的 Visual 测试（含导出包）显式使用 `--audio-driver Dummy`；Headless 由引擎自动选择 Dummy。
+这样测试不连接真实音频设备，避免仅静音后仍保留设备会话；实际听感需通过正常游戏另行验收。
+
 任何 `--bench` 场景启动后都会在当前测试进程 mute `Master` 总线，因此 Music、SFX、UI、Radio
 以及未来新增的子总线均不会从系统扬声器出声。这里只切断最终输出，不跳过 `play_*` 调用、播放器状态、
 signal 或总线路由断言，也不写入 `user://audio.cfg`；正常 F5 游戏和用户音频设置不受影响。
@@ -25,6 +28,8 @@ signal 或总线路由断言，也不写入 `user://audio.cfg`；正常 F5 游�
 用户要求实际操作验收时，可在 `Shadow Visual` 前显式设置 `AGL_BENCH_INTERACTIVE=1`，把本次窗口显示在屏幕内。默认仍是屏外窗口；锁、超时、错误门和自动测试静音不变。交互截图与操作会扰动帧时，不能把该会话当标准性能样本；结束后清除此进程环境开关，再跑标准C1/C2。
 
 对比 release 包时同样只经 wrapper：`AGL_BENCH_EXPORT_RELEASE=<项目外绝对路径\X.exe>` 在 Shadow 副本里用当前编辑器导出（预设名可用 `AGL_BENCH_EXPORT_PRESET` 改），`AGL_BENCH_EXPORTED_EXE=<X.exe>` 用导出包（同名 `.pck`）跑同一场景；导出包把结果写到 `user://bench/results/`，wrapper 结束后搬回 `bench/results/`。两者互斥，锁、超时、作业对象与错误门不变。`AGL_BENCH_EXPORTED_CWD=<项目外已存在目录>` 让导出包从该目录启动，验证与工作目录无关。M20 东京地图包不进主 PCK，改打独立地图包（构建任务 `tokyo_map_pack`），放在导出目录 `maps/` 下由 `MapPacks` 挂载，见[发行打包规格](../specs/systems/tokyo-map-distribution.md)。
+
+Windows 下受控源码对照可显式设置 `AGL_BENCH_SOURCE_OVERLAY=<项目 tmp 内绝对清单路径>`。仅接受编辑器 Shadow 测试；清单 schema 为 1，files 中每项为 `path`（现有 scripts 下 .gd 相对路径）、`source`（tmp 内绝对备份路径）和 `sha256`，最多 32 项。wrapper 完整校验后只覆盖隔离副本并记录摘要，源工作区不回退；下一轮普通同步自动恢复副本。锁、超时、音频与错误门不变。
 
 ## 结果口径
 
@@ -35,11 +40,13 @@ signal 或总线路由断言，也不写入 `user://audio.cfg`；正常 F5 游�
 | 1 | 测试断言或场景失败 | 按首个失败标签修复并复跑 |
 | 2 | launcher / 参数 / 环境错误 | 修环境，不归因到玩法代码 |
 | 3 | InPlace 检测到 Godot 进程或锁冲突 | 使用 Shadow 或等待 owner 退出 |
-| 86 | Godot 可能退出 0，但 stdout/stderr 含致命运行时诊断 | 从首个 `RUNTIME ERROR` 块追真实调用链并修复 |
+| 86 | stdout/stderr 含致命运行时诊断，优先于 Godot 原退出码（包括 0 和 1） | 从首个 `RUNTIME ERROR` 块追真实调用链并修复 |
 | 124 | 超时，进程树已回收 | 区分死循环、原生崩溃弹窗被抑制后的挂起和时限不足 |
 
 `WARNING` 不等于运行时错误。若确有稳定的引擎退出噪音，需要精确匹配单条文本后才能加入白名单；
 测试代码主动发出的精确 `ERROR: [Bench]` 也属于致命诊断；禁止跳过全部 `ERROR` 或关闭错误门。
+
+致命诊断优先级高于场景断言或性能门失败：即使 Godot 已退出 1，wrapper 也必须改判 86，不能让容许已知慢帧的专项汇总吞掉同时出现的解析或运行时错误。
 
 `SHADER ERROR:` 与 `ERROR: Shader compilation failed` 同样属于致命诊断，即使Godot退出0也改判86。`tools/test_bench_shader_gate.ps1`提取实际wrapper函数，覆盖stdout/stderr、回溯分块、非致命warning负对照及已有真实shader失败日志回放；失败shader的截图和像素摘要不能作为渲染通过证据。
 
@@ -54,7 +61,7 @@ wrong/uninitialized/already-initialized RID、free uninitialized/invalid RID及r
 
 ## `all` 实际包含什么
 
-1. `BenchRunner.UNIT_TESTS` 全部同步断言；
+1. `BenchRunner.UNIT_TESTS` 全部同步断言；调度器读取 `run()` 返回字典中的 `failed`，并与 `_fail`、`_failed` 取最大值，任何非零失败都会阻止通过，避免不同测试计数命名导致假绿；
 2. 既有 freed-object / TypedArray 抗体：攻击者释放、玩家切控与死亡、BOSS 清场、阵营转换、舞台演员释放等；
 3. `lifecycle_gauntlet`：真实节点进入树，`queue_free()` 后继续推进帧并跨缓存 tick；
 4. wrapper 对完整输出执行运行时错误门。
@@ -87,3 +94,5 @@ bench\run.cmd runtime_error_probe 1 180 Shadow Headless
 
 长时随机压力仍有价值，但只负责发现未知组合；它不能代替确定性终态测试。需要 soak 时使用固定 seed，
 主动注入击杀/完成/取消事件并记录 seed，失败后把该顺序收敛为新的确定性 gauntlet 案例。
+
+超时与脚本错误同时出现时，wrapper 同时保留超时说明和首个运行时错误块，退出码优先 `86`；只有没有运行时错误的纯超时才为 `124`。`tools/test_bench_timeout_gate.ps1` 对真实末尾分类代码覆盖七种组合，不能用超时吞掉编译失败。

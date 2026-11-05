@@ -158,12 +158,19 @@ const BUILD_TASKS: Dictionary = {
 ## 无需 RenderingServer、但必须真实跨帧处理 queue_free / SceneTree 信号顺序的集成测试场。
 ## `all` 在同步单测全绿后强制进入 lifecycle_gauntlet；不能被单项断言替代。
 const HEADLESS_TEST_SCENES: Dictionary = {
+	"dock_decision": "res://scenes/tests/dock_decision.tscn",
+	"audio_shutdown": "res://scenes/tests/audio_shutdown.tscn",
+	"audio_shutdown_failure": "res://scenes/tests/audio_shutdown.tscn",
+	"squad_ownership": "res://scenes/tests/squad_ownership.tscn",
+	"tactical_canvas": "res://scenes/tests/tactical_canvas.tscn",
+	"unit_status": "res://scenes/tests/unit_status.tscn",
 	"tokyo_map_planning": "res://scenes/tests/tokyo_map_planning.tscn",
 	"visual_redraw_queue": "res://scenes/tests/visual_redraw_queue.tscn",
 	"zone_spawn_burst": "res://scenes/tests/zone_spawn_burst.tscn",
 	"full_war": "res://scenes/tests/full_war.tscn",
 	"fear_cone": "res://scenes/tests/fear_cone.tscn",
 	"ocean_volume_lifecycle": "res://scenes/tests/ocean_volume_lifecycle.tscn",
+	"invasion_algorithm": "res://scenes/tests/invasion_algorithm.tscn",
 	"bloodlust_head_on": "res://scenes/tests/bloodlust_head_on.tscn",
 	"desert_preload": "res://scenes/tests/desert_preload.tscn",
 	"lifecycle_gauntlet": "res://scenes/tests/lifecycle_gauntlet.tscn",
@@ -178,6 +185,8 @@ const HEADLESS_TEST_SCENES: Dictionary = {
 
 ## 需要真实 RenderingServer 的固定画面采集；必须由 run.cmd 的 Visual 模式启动。
 const VISUAL_TEST_SCENES: Dictionary = {
+	"wraith_arrival_visual": "res://scenes/tests/wraith_arrival.tscn",
+	"player_elements_visual": "res://scenes/tests/player_elements_visual.tscn",
 	"full_war_visual": "res://scenes/tests/full_war.tscn",
 	"full_war_baseline": "res://scenes/tests/full_war.tscn",
 	"weather_volume_visual": "res://scenes/tests/weather_volume_visual.tscn",
@@ -201,6 +210,7 @@ const VISUAL_TEST_SCENES: Dictionary = {
 	"volume_aircraft_multiview": "res://scenes/tests/volume_aircraft_multiview_qa.tscn",
 	"volume_aircraft_lod_multiview": "res://scenes/tests/volume_aircraft_multiview_qa.tscn",
 	"volume_aircraft_lod2_multiview": "res://scenes/tests/volume_aircraft_multiview_qa.tscn",
+	"volume_mount_fit": "res://scenes/tests/volume_aircraft_mount_fit.tscn",
 	"volume_aircraft_runtime": "res://scenes/tests/volume_aircraft_runtime_qa.tscn",
 	"volume_formal_quality": "res://scenes/tests/volume_formal_quality.tscn",
 	"main_menu_visual": "res://scenes/tests/main_menu_visual_qa.tscn",
@@ -274,8 +284,15 @@ var _bloodlust_probe_ref: WeakRef
 var _fear_probe_ref: WeakRef
 
 func _ready() -> void:
+	# 普通启动不编译整条地图验收依赖；只有显式复核参数才加载诊断脚本。
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--tokyo-f5-review="):
+			var review: Script=load("res://scripts/diagnostics/tokyo_f5_review.gd")
+			if review.start(self): return
+			break
+	if OS.get_environment("AGL_STARTUP_AUDIT")=="1": print("[StartupAudit] autoload_ready_ms=",Time.get_ticks_msec())
 	# 诊断专用卡顿飞行记录器：仅显式环境变量启用，bench 与正常游玩都可挂载。
-	if OS.has_environment("AGL_FRAME_PROBE"):
+	if OS.get_environment("AGL_FRAME_PROBE") == "1":
 		var probe_script: GDScript = load("res://scripts/diagnostics/frame_probe.gd")
 		if probe_script != null:
 			add_child(probe_script.new())
@@ -308,7 +325,7 @@ func _ready() -> void:
 		if DisplayServer.get_name() == "headless":
 			printerr("[Bench] %s requires: bench/run.cmd %s 1 180 Shadow Visual" % [
 				bench_scenario, bench_scenario])
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		get_tree().set_meta("bench_mode", true)
 		get_tree().set_meta("bench_scenario", bench_scenario)
@@ -346,7 +363,7 @@ func _ready() -> void:
 				call_deferred("_swap_to_test_scene",
 					String(HEADLESS_TEST_SCENES["lifecycle_gauntlet"]))
 				return
-		get_tree().quit(1 if total_fail > 0 else 0)
+		AudioManager.request_quit(1 if total_fail > 0 else 0)
 		return
 
 	bench_active = true
@@ -365,7 +382,7 @@ func _ready() -> void:
 	if bench_scenario in ["bloodlust_head_on_c1", "bloodlust_head_on_c1_baseline"]:
 		if DisplayServer.get_name() == "headless":
 			push_error("Bloodlust C1 requires Shadow Visual")
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		get_tree().set_meta("bench_scenario", "battlefield_atmosphere_stress_36")
 		call_deferred("_swap_to_bloodlust_c1")
@@ -416,13 +433,13 @@ func _ready() -> void:
 	if bench_scenario in ["ocean_volume_c1", "ocean_volume_c1_baseline", "ocean_volume_c2"]:
 		if DisplayServer.get_name() == "headless":
 			push_error("Ocean performance scenarios require Shadow Visual")
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		call_deferred("_swap_to_visual_test", "res://scenes/tests/ocean_volume_combat.tscn")
 		return
 	if bench_scenario == "desert_contact_ao_c1":
 		if DisplayServer.get_name() == "headless":
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		call_deferred("_swap_to_visual_test", "res://scenes/tests/desert_contact_ao_combat.tscn")
 		return
@@ -433,7 +450,7 @@ func _ready() -> void:
 			"tokyo_cells_near", "tokyo_cells_near_baseline"]:
 		if DisplayServer.get_name() == "headless":
 			push_error("Tokyo paired performance scenarios require Shadow Visual")
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		call_deferred("_swap_to_visual_test", "res://scenes/tests/tokyo_volume_combat.tscn")
 		return
@@ -442,7 +459,7 @@ func _ready() -> void:
 			get_tree().set_meta("ugc_map_path", "res://resources/maps/desert_railway_preview.aglmap")
 		if DisplayServer.get_name() == "headless":
 			push_error("Volume paired performance scenarios require Shadow Visual")
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		# 专项明确使用真实 F-47 档案，保证本批模型参与战斗；双方负载一致。
 		if bench_scenario.contains("_airframes_"):
@@ -465,6 +482,7 @@ func _ready() -> void:
 ## 跑一项注册表测试，返回失败数（加载失败 = 1）
 func _run_unit_test(key: String) -> int:
 	print("[Bench] ────── %s ──────" % key)
+	var started_usec := Time.get_ticks_usec()
 	if key == "bfm_intent":
 		return 0 if BfmIntentTest.run_all() else 1
 	var script: GDScript = load(String(UNIT_TESTS[key]))
@@ -475,9 +493,18 @@ func _run_unit_test(key: String) -> int:
 	if t == null or not t.has_method("run"):
 		printerr("[Bench] %s: 无 run() 入口" % key)
 		return 1
-	t.run()
-	var f = t.get("_fail")
-	return int(f) if f != null else 0
+	var result: Variant = t.run()
+	# 一部分测试返回 failed 字典并使用 _failed，不能只读取旧的 _fail 槽。
+	var failed := 0
+	if result is Dictionary:
+		failed = int(result.get("failed", 0))
+	for field in ["_fail", "_failed"]:
+		var count: Variant = t.get(field)
+		if count != null:
+			failed = maxi(failed, int(count))
+	print("[Bench] %s completed in %.3fs failed=%d" % [
+		key, float(Time.get_ticks_usec() - started_usec) / 1000000.0, failed])
+	return failed
 
 
 ## 显式构建/报告任务在 AutoLoad _ready 完成后执行，允许任务挂载真实 SceneTree 样本。
@@ -488,7 +515,7 @@ func _run_build_task(key: String) -> void:
 	if build != null and build.has_method("run"):
 		build.run()
 		build_fail = int(build.get("_fail"))
-	get_tree().quit(1 if build_fail > 0 else 0)
+	AudioManager.request_quit(1 if build_fail > 0 else 0)
 
 
 func _swap_to_survivor() -> void:
@@ -496,7 +523,7 @@ func _swap_to_survivor() -> void:
 	var err: int = get_tree().change_scene_to_file("res://scenes/survivor_mode.tscn")
 	if err != OK:
 		push_error("[Bench] failed to load survivor_mode.tscn (err=%d)" % err)
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 
 
 func _swap_to_fear_probe() -> void:
@@ -523,7 +550,7 @@ func _swap_to_volume_experiment() -> void:
 	var probe_script: GDScript = load("res://scripts/tests/volume_map_performance.gd"
 		if bench_scenario.begins_with("volume_map_") else "res://scripts/experiments/volume_world_probe.gd")
 	if probe_script == null or not probe_script.can_instantiate():
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	var probe: Node = probe_script.new()
 	mode.add_child(probe)
@@ -536,7 +563,7 @@ func _swap_to_visual_test(scene_path: String) -> void:
 	var err: int = get_tree().change_scene_to_file(scene_path)
 	if err != OK:
 		push_error("[Bench] failed to load visual test scene (err=%d)" % err)
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 
 
 func _swap_to_test_scene(scene_path: String) -> void:
@@ -544,7 +571,7 @@ func _swap_to_test_scene(scene_path: String) -> void:
 	var err: int = get_tree().change_scene_to_file(scene_path)
 	if err != OK:
 		push_error("[Bench] failed to load integration test scene (err=%d)" % err)
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 
 
 ## 由 survivor_mode 在 bench duration 到点时回调
@@ -613,4 +640,4 @@ func bench_finish(extra_summary: String = "", exit_code: int = 0) -> void:
 		var bloodlust_probe: Variant = _bloodlust_probe_ref.get_ref()
 		if is_instance_valid(bloodlust_probe): await bloodlust_probe.capture()
 	await get_tree().process_frame
-	get_tree().quit(exit_code)
+	AudioManager.request_quit(exit_code)

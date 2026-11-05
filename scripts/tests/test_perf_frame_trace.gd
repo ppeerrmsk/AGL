@@ -150,6 +150,27 @@ func _test_slow_frame_keeps_pre_and_post_context() -> void:
 		and dump.contains("triggers=[3]")
 		and dump.contains("complete=false")
 		and dump.contains("! f=3 dt=20.000"), dump)
+	var captured: Dictionary = tracker._trace_spikes[0]
+	for index in range(160):
+		tracker.tick("aircraft_draw", index + 1)
+		tracker.count("radar_pairs", index)
+		tracker.set_value("all_units.total", index)
+		tracker.begin_render_frame(0.010)
+	_check("后续帧覆盖环形历史后，已捕获尖峰和前后文仍保存原始桶",
+		captured.buckets_us.aircraft_draw == 12000
+		and tracker._trace_context_windows[0].frames[2].buckets_us.aircraft_draw == 12000
+		and tracker._trace_recent_frames.size() == 120)
+	_check("共享帧及其嵌套字典只读，防止诊断消费者污染历史",
+		captured.is_read_only() and captured.buckets_us.is_read_only()
+		and captured.counts.is_read_only() and captured.load.is_read_only())
+	tracker.configure_frame_trace(false)
+	tracker.configure_frame_trace(true)
+	tracker.begin_render_frame(0.010)
+	tracker.tick("aircraft_draw", 7)
+	tracker.begin_render_frame(0.020)
+	_check("重启追踪不修改旧快照，新帧独立记账",
+		captured.buckets_us.aircraft_draw == 12000
+		and tracker._trace_spikes[0].buckets_us.aircraft_draw == 7)
 	tracker.free()
 
 
@@ -313,6 +334,19 @@ func _test_map_root_and_context() -> void:
 
 
 func _test_render_partition() -> void:
+	var wall_clock := preload("res://scripts/tests/map_frame_clock.gd").new()
+	wall_clock.trace = false
+	wall_clock.observe(false, 1)
+	wall_clock.observe(true, 1000000)
+	wall_clock.observe(true, 1016666)
+	wall_clock.observe(true, 1302619)
+	var wall_report: Dictionary = wall_clock.report()
+	_check("长停顿保留完整墙钟且不能被平均FPS判过门", wall_report.samples == 2
+		and wall_report.below60 == 1 and is_equal_approx(wall_report.max_ms, 285.953)
+		and not wall_report.passed)
+	wall_clock.observe(false, 2000000)
+	wall_clock.observe(true, 3000000)
+	_check("暂停与预热不拼接进帧时", wall_clock.report().samples == 2)
 	var trace: Script = load("res://scripts/tests/tokyo_render_clock.gd")
 	_check("同步呈现诊断只接受有效刷新率下的显式余量", trace.diagnostic_cap("", -1.0)==0
 		and trace.diagnostic_cap("117",120.0)==117 and trace.diagnostic_cap("120",120.0)==-1

@@ -6,7 +6,12 @@ extends RefCounted
 const THINK_INTERVAL_S := 0.5
 const RELAY_INTERVAL_S := 6.0
 
-var _squad: RefCounted
+## 主题控制器由中队持有，宿主引用只用于观察。
+var _squad_ref: WeakRef
+var _squad: RefCounted:
+	get:
+		var value: Variant = _squad_ref.get_ref() if _squad_ref != null else null
+		return value as RefCounted if typeof(value) == TYPE_OBJECT and is_instance_valid(value) else null
 var _theme := ""
 var _player: Aircraft
 var _elapsed := THINK_INTERVAL_S
@@ -17,7 +22,7 @@ var _shared_flares := -1
 
 
 func _init(squad: RefCounted, theme: String, player: Aircraft) -> void:
-	_squad = squad
+	_squad_ref = weakref(squad)
 	_theme = theme
 	_player = player
 	var profile := AceSquadProfiles.get_profile(squad.profile_id)
@@ -74,6 +79,8 @@ func update(delta: float, allow_targeting: bool = true) -> void:
 
 func _live_members() -> Array[Aircraft]:
 	var out: Array[Aircraft] = []
+	if _squad == null:
+		return out
 	for ac in _squad.members:
 		if is_instance_valid(ac) and not ac.is_destroyed and not ac.is_queued_for_deletion():
 			out.append(ac)

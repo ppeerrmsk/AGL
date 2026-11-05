@@ -3,6 +3,8 @@ extends Node2D
 
 const Probe := preload("res://scripts/experiments/volume_world_probe.gd")
 const Catalog := preload("res://scripts/aircraft_silhouette_catalog.gd")
+const Mounts := preload("res://scripts/experiments/volume_aircraft_mount_catalog.gd")
+const Airframes := preload("res://scripts/experiments/volume_aircraft_catalog.gd")
 const BODY_META := &"volume_3d_body"
 const SAMPLES: Array[Dictionary] = [
 	{"key": "f14", "path": "res://resources/player/player_f14.tres", "label": "F-14 / WARHOUND"},
@@ -75,6 +77,9 @@ const SAMPLES: Array[Dictionary] = [
 	{"key": "x44", "path": "res://resources/player/player_x44.tres", "label": "X-44 / ANVIL"},
 	{"key": "x77", "path": "res://resources/player/player_x77.tres", "label": "X-77 / PHANTOM RAVEN"},
 	{"key": "x90", "path": "res://resources/player/player_x90.tres", "label": "X-90 / SKYWHALE"},
+	{"key": "orion_final_form", "path": "", "label": "ORION / FINAL FORM"},
+	{"key": "orion_fang", "path": "", "label": "FANG / ESCORT"},
+	{"key": "mother_goose", "path": "res://resources/enemy_mother_goose.tres", "label": "MOTHER GOOSE / BOSS", "silhouette": "mother_goose"},
 ]
 const PAGE_SIZE := 8
 const COLUMNS := 4
@@ -115,7 +120,11 @@ func _spawn_real_aircraft() -> bool:
 				(float(row) - 0.5) * 216.0))
 	for index in SAMPLES.size():
 		var sample := SAMPLES[index]
-		var params := load(String(sample.path)) as AircraftParams
+		var params: AircraftParams
+		if String(sample.path).is_empty():
+			params = preload("res://scripts/survivor/orion_airframe_config.gd").make_airframe(String(sample.key) == "orion_fang")
+		else:
+			params = load(String(sample.path)) as AircraftParams
 		if params == null:
 			_check(false, "formal AircraftParams loads: %s" % sample.path)
 			return false
@@ -134,6 +143,17 @@ func _spawn_real_aircraft() -> bool:
 		elif String(sample.key) == "tu160":
 			ac.set_meta(&"airframe_label", ac.params.display_name)
 			ac.params.display_name = "AWACS"
+		if String(sample.key) == "mother_goose":
+			var mounts: Array = []
+			var offsets: Array[Vector2] = MotherGooseBoss.PROP_OFFSETS_PX.duplicate()
+			offsets.append_array(MotherGooseBoss.VLS_OFFSETS_PX)
+			for offset in offsets:
+				var mount := WeaponMount.new()
+				var mount_params := WeaponMountParams.new()
+				mount_params.local_offset = offset
+				mount.initialize(mount_params)
+				mounts.append(mount)
+			ac.set_meta(&"mg_mounts", mounts)
 		add_child(ac)
 		ac.process_mode = Node.PROCESS_MODE_DISABLED
 		_aircraft.append(ac)
@@ -191,6 +211,7 @@ func _set_page(page_index: int) -> void:
 
 
 func _run_qa() -> void:
+	DirAccess.make_dir_recursive_absolute("res://tmp/map_visual_qa/mount_runtime")
 	var seen: Dictionary = {}
 	var page_total := ceili(float(SAMPLES.size()) / PAGE_SIZE)
 	for page_index in page_total:
@@ -237,9 +258,11 @@ func _run_qa() -> void:
 			var after_spin := rotor_batch.multimesh.get_instance_transform(0)
 			_check(not before_spin.is_equal_approx(after_spin), "旋翼变换随运行时状态持续转动")
 		await RenderingServer.frame_post_draw
-		var output := "res://bench/results/volume_aircraft_runtime_qa_page_%02d.png" % [page_index + 1]
+		_verify_mount_batches(page_index)
+		var output := "res://tmp/map_visual_qa/mount_runtime/volume_aircraft_runtime_qa_page_%02d.png" % [page_index + 1]
 		var error := get_viewport().get_texture().get_image().save_png(output)
 		_check(error == OK, "real Aircraft routing screenshot page saved")
+	_check(seen.size() == Airframes.supported_keys().size(), "runtime QA covers the entire current production catalog")
 	_check(seen.size() == SAMPLES.size(), "every produced canonical key is exercised by a real Aircraft")
 	_check(_probe.max_projection_error_px < 0.1, "3D bodies stay aligned to 2D gameplay anchors")
 
@@ -274,9 +297,60 @@ func _run_qa() -> void:
 	_finish(1 if _fail > 0 else 0)
 
 
+func _verify_mount_batches(page: int) -> void:
+	var start := page * PAGE_SIZE
+	var stop := mini(start + PAGE_SIZE, _aircraft.size())
+	# 小型无人机在原总览机位合法进入 LOD1；放大真实相机以实际激活 LOD0 挂载路径。
+	var saved_zoom := camera.zoom
+	camera.zoom *= 4.0
+	for index in range(start, stop):
+		_aircraft[index].position /= 4.0
+	camera.force_update_scroll()
+	for bank in [0.0, 1.15, PI]:
+		for index in range(start, stop):
+			_aircraft[index].bank_angle = bank
+		_probe._process(0.11)
+		var counters: Dictionary = {}
+		for index in range(start, stop):
+			var ac := _aircraft[index]
+			var key: String = SAMPLES[index].key
+			var batch: MultiMeshInstance3D = _probe._batches[key]
+			var body_transform := batch.multimesh.get_instance_transform(0)
+			var connected := true
+			for kind in Mounts.AIRCRAFT_KINDS:
+				var slots := Mounts.local_slots(kind, key)
+				for slot_index in mini(Mounts.visible_count(kind, ac), slots.size()):
+					var route := "mount_" + kind
+					var ordinal := int(counters.get(route, 0))
+					var mount_batch: MultiMeshInstance3D = _probe._batches[route]
+					var actual := mount_batch.multimesh.get_instance_transform(ordinal)
+					var expected := body_transform * Transform3D(Basis.IDENTITY, slots[slot_index])
+					connected = connected and actual.origin.distance_to(expected.origin) < 0.01
+					connected = connected and actual.basis.is_equal_approx(expected.basis)
+					counters[route] = ordinal + 1
+			if key == "mother_goose":
+				var offsets: Array[Vector2] = MotherGooseBoss.PROP_OFFSETS_PX.duplicate()
+				offsets.append_array(MotherGooseBoss.VLS_OFFSETS_PX)
+				for mount_index in offsets.size():
+					var prop := mount_index < 8
+					var route := "prop" if prop else "vls"
+					var mounted: MultiMeshInstance3D = _probe._batches[route]
+					var actual := mounted.multimesh.get_instance_transform(mount_index if prop else mount_index - 8)
+					var layout := Mounts.goose_layout(offsets[mount_index], prop)
+					var expected := body_transform * Transform3D(Basis.IDENTITY, layout.position)
+					connected = connected and actual.origin.distance_to(expected.origin) < 0.01
+			_check(connected, "%s actual GPU mount transforms follow hull at bank %.0f" % [key, rad_to_deg(bank)])
+	for index in range(start, stop):
+		_aircraft[index].bank_angle = 0.0
+		_aircraft[index].position *= 4.0
+	camera.zoom = saved_zoom
+	camera.force_update_scroll()
+	_probe._process(0.11)
+
+
 func _finish(code: int) -> void:
 	print("[Volume aircraft runtime QA] pass=%d fail=%d" % [_pass, _fail])
-	get_tree().quit(code)
+	AudioManager.request_quit(code)
 
 
 func _check(ok: bool, label: String) -> void:

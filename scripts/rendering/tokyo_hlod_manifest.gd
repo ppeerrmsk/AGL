@@ -37,6 +37,7 @@ const ORIGIN := Vector2(-16300,-15700)
 const SOURCE_COUNT := 189
 const Boundary := preload("res://scripts/rendering/tokyo_boundary_extent.gd")
 const Cut := preload("res://scripts/experiments/tokyo_spatial_cut.gd")
+const Select := preload("res://scripts/experiments/tokyo_spatial_select.gd")
 const MapProjection := preload("res://scripts/experiments/volume_projection.gd")
 const PreparedCatalog := preload("res://scripts/rendering/tokyo_prepared_catalog.gd")
 
@@ -147,6 +148,11 @@ static func normalize(data: Variant) -> Dictionary:
 		or typeof(data.get("min_scale")) not in [TYPE_INT,TYPE_FLOAT] or typeof(data.get("max_scale")) not in [TYPE_INT,TYPE_FLOAT] \
 		or not is_finite(float(data.min_scale)) or not is_finite(float(data.max_scale)) or data.min_scale<0 or data.max_scale<=data.min_scale: return {}
 	if data.has("middle_massing_recipe") and (not binding(data.middle_massing_recipe) or not is_equal_approx(float(data.max_scale),0.625)): return {}
+	var motion_summary: Variant=data.get("resident_motion_summary")
+	if motion_summary!=null and (not motion_summary is Dictionary or motion_summary.get("schema")!=1 \
+		or motion_summary.get("preferred_max_scale")!=0.8 or motion_summary.get("formal_unchanged")!=true \
+		or not is_equal_approx(float(data.max_scale),10.0) or not binding(data.get("far_summary_recipe"))): return {}
+	if data.has("far_summary_recipe") and (not binding(data.far_summary_recipe) or (float(data.max_scale)>0.8 and motion_summary==null)): return {}
 	var rows: Dictionary = {}
 	var mixed_scales := false
 	var geometry: Dictionary = {}
@@ -197,6 +203,8 @@ static func normalize(data: Variant) -> Dictionary:
 	var result := {"rows":rows,"roots":roots,"geometry":geometry,"textures":textures,"min_scale":float(data.min_scale),"max_scale":float(data.max_scale),"mixed_scales":mixed_scales,
 		"input_sha256":data.input_sha256,"source_count":SOURCE_COUNT,"bounds":Boundary.bounds(boundary_sha),"formal_runtime_coverage_verified":false,"runtime_integrated":false}
 	if data.has("middle_massing_recipe"): result["middle_massing_recipe"]=data.middle_massing_recipe.duplicate(true)
+	if data.has("far_summary_recipe"): result["far_summary_recipe"]=data.far_summary_recipe.duplicate(true)
+	if motion_summary!=null: result["resident_motion_summary"]=motion_summary.duplicate(true)
 	return result
 
 
@@ -254,6 +262,73 @@ static func charges(catalog: Dictionary, keys: PackedStringArray, work: Variant 
 		"within_budget":faces<=240000 and mesh_bytes+texture_bytes+ground_bytes<=display_limit(work),"coverage_verified":false}
 
 
+static func stable_leaf_cut(catalog: Dictionary, roots: Array[Dictionary], view: Rect2, canvas: Transform2D, size: Vector2, roof: Vector2, budget: int, work: Dictionary, partition_depth: int = -1) -> Dictionary:
+	# 固定空间身份可避免平移/缩放时反复改选父页；仍必须完整、合格且符合原显示上限。
+	var started := Time.get_ticks_usec()
+	var pending: Array[Dictionary]=roots.duplicate()
+	var entries: Array[Dictionary]=[]
+	var keys := PackedStringArray()
+	var faces := 0
+	var bytes := 0
+	while not pending.is_empty():
+		var entry: Dictionary=pending.pop_back()
+		var visible := Select.visible(entry,view,canvas,size,roof,Vector2.ZERO)
+		if visible.faces<=0: continue
+		if not entry.get("children",[]).is_empty() and (partition_depth<0 or int(catalog.rows[entry.key].depth)<partition_depth):
+			pending.append_array(entry.children)
+			continue
+		entries.append(visible);keys.append(entry.key)
+		faces+=int(visible.faces);bytes+=int(visible.bytes)
+		if entries.size()>16: return {}
+	if partition_depth==1 and work.get("stable_hlod_refine",false) and (faces>240000 or bytes>display_limit(work)):
+		# 只拆超预算视野的边缘块，保留其余固定身份；不再为少量超支更换整套父子页。
+		entries=refine_stable_tiles(entries,view,canvas,size,roof,display_limit(work))
+		keys=PackedStringArray();faces=0;bytes=0
+		for entry: Dictionary in entries:
+			keys.append(entry.key);faces+=int(entry.faces);bytes+=int(entry.bytes)
+	if faces>240000 or bytes>display_limit(work): return {}
+	if keys.is_empty(): return {}
+	var charged := charges(catalog,keys,work)
+	if charged.is_empty() or not charged.within_budget or charged.faces!=faces or charged.total_bytes>bytes: return {}
+	return {"entries":entries,"keys":keys,"charges":charged,"triangles":faces,"bytes":bytes,"active":entries.size(),
+		"within_budget":bytes<=budget,"solver_usec":Time.get_ticks_usec()-started,"stable_leaves":partition_depth<0,"stable_tile_depth":partition_depth}
+
+
+static func refine_stable_tiles(original: Array[Dictionary], view: Rect2, canvas: Transform2D, size: Vector2, roof: Vector2, budget: int) -> Array[Dictionary]:
+	var entries: Array[Dictionary]=original.duplicate()
+	var bytes := 0
+	var faces := 0
+	for entry: Dictionary in entries:
+		bytes+=int(entry.bytes);faces+=int(entry.faces)
+	while bytes>budget or faces>240000:
+		var best := -1
+		var best_score := 0.0
+		var replacement: Array[Dictionary]=[]
+		var saved_bytes := 0
+		var saved_faces := 0
+		for index in entries.size():
+			var entry: Dictionary=entries[index]
+			var children: Array[Dictionary]=[]
+			var child_bytes := 0
+			var child_faces := 0
+			for child: Dictionary in entry.get("children",[]):
+				var visible := Select.visible(child,view,canvas,size,roof,Vector2.ZERO)
+				if visible.faces<=0: continue
+				children.append(visible);child_bytes+=int(visible.bytes);child_faces+=int(visible.faces)
+			if children.is_empty() or entries.size()-1+children.size()>16: continue
+			var saving := int(entry.bytes)-child_bytes
+			var face_saving := int(entry.faces)-child_faces
+			# 缺资源哨兵不会因拆分被删除；替代必须完整且真实省费，仍保留原16页/面数上限。
+			if saving<=0 or face_saving<0: continue
+			var score := float(face_saving if faces>240000 else saving)/maxi(1,children.size()-1)
+			if score<=best_score: continue
+			best=index;best_score=score;replacement=children;saved_bytes=saving;saved_faces=face_saving
+		if best<0: return []
+		entries.remove_at(best);entries.append_array(replacement)
+		bytes-=saved_bytes;faces-=saved_faces
+	return entries
+
+
 static func select(catalog: Dictionary, center: Vector2, scale: float, rotation: float, size: Vector2 = Vector2(1600,900), allow_finer: bool = false, byte_budget: int = 96*1024*1024, work: Variant = null, small_uploads: bool = false) -> Dictionary:
 	if not catalog.get("roots") is Array or not is_finite(scale) or not is_finite(rotation) \
 		or not center.is_finite() or not size.is_finite() or size.x<=0 or size.y<=0 \
@@ -267,6 +342,19 @@ static func select(catalog: Dictionary, center: Vector2, scale: float, rotation:
 	var ground := MapProjection.ground_basis(canvas,deg_to_rad(38))
 	var ray := ground.inverse()*MapProjection.camera_basis(canvas,deg_to_rad(38)).z
 	var roof := -Vector2(ray.x,ray.z)/ray.y
+	if work is Dictionary and work.get("stable_hlod_leaves",false) and not catalog.has("far_summary_recipe"):
+		var leaf_roots: Array[Dictionary]=[]
+		leaf_roots.assign(catalog.roots)
+		if catalog.get("mixed_scales",false):
+			leaf_roots=qualified_roots(catalog,minf(scale/PREFETCH_RATIO,float(catalog.max_scale)) if allow_finer else scale,work)
+		# 原M20远景仍用同一档几何/纹理，只固定空间分块；最细叶超过16页时不再逐视角反复改父子身份。
+		if work.get("stable_hlod_tiles",false) and not catalog.get("mixed_scales",false) \
+			and float(catalog.min_scale)>=0.17 and float(catalog.max_scale)<=0.25:
+			var tiles := stable_leaf_cut(catalog,leaf_roots,view,canvas,size,roof,byte_budget,work,1)
+			if not tiles.is_empty(): return tiles
+			if work.get("stable_hlod_tiles_only",false): return {}
+		var leaves := stable_leaf_cut(catalog,leaf_roots,view,canvas,size,roof,byte_budget,work)
+		if not leaves.is_empty(): return leaves
 	# 预算只影响最终筛选；缓存由overlay持有，身份/视野/帧完全相同才复用。
 	var identity: Dictionary = catalog.get("identity",{})
 	var cacheable := work is Dictionary and not identity.is_empty()
@@ -361,6 +449,23 @@ static func incremental_tree(entry: Dictionary, costs: Dictionary) -> Dictionary
 	return result
 
 
+static func visible_keys(cut: Dictionary, center: Vector2, scale: float, rotation: float, size: Vector2) -> PackedStringArray:
+	# 仅供请求排序：未来档尚不合格也能判断哪些页会占当前屏幕，不授予显示资格。
+	var result := PackedStringArray()
+	if scale<=0.0 or not cut.get("entries") is Array: return result
+	var canvas := Transform2D(rotation,Vector2.ZERO).scaled(Vector2.ONE*scale)
+	canvas.origin=size*0.5-canvas*center
+	var inverse := canvas.affine_inverse()
+	var view := Rect2(inverse*Vector2.ZERO,Vector2.ZERO)
+	for point: Vector2 in [Vector2(size.x,0),size,Vector2(0,size.y)]: view=view.expand(inverse*point)
+	var ray := MapProjection.ground_basis(canvas,deg_to_rad(38)).inverse()*MapProjection.camera_basis(canvas,deg_to_rad(38)).z
+	var roof := -Vector2(ray.x,ray.z)/ray.y
+	for entry: Dictionary in cut.entries:
+		if preload("res://scripts/experiments/tokyo_spatial_select.gd").visible(entry,view,canvas,size,roof,Vector2.ZERO).faces>0:
+			result.append(entry.get("key",entry.get("path","")))
+	return result
+
+
 static func visible_subset(catalog: Dictionary, cut: Dictionary, center: Vector2, scale: float, rotation: float, size: Vector2, work: Variant = null, lead: Vector2 = Vector2.ZERO) -> Dictionary:
 	# 只从原切面的最多16页中裁掉当前/前进视野联合区之外的页，不展开子页。
 	if not lead.is_finite() or not cut.get("entries") is Array or cut.entries.is_empty(): return {}
@@ -374,6 +479,7 @@ static func visible_subset(catalog: Dictionary, cut: Dictionary, center: Vector2
 	subset["min_scale"]=minf(float(catalog.min_scale),scale)
 	# 旧切面子集不是原目录的完整树，不能命中同身份的完整树缓存。
 	subset.erase("identity")
+	subset.erase("transition_intervals")
 	var query_center := center+lead*0.5
 	var query_size := size+(Transform2D(rotation,Vector2.ZERO).basis_xform(lead)*scale).abs()
 	var result := select(subset,query_center,scale,rotation,query_size,false,display_limit(work),work)
@@ -412,7 +518,32 @@ static func split_large_uploads(original: Dictionary, catalog: Dictionary, view:
 	return result
 
 
+static func transition_roots(roots: Array[Dictionary], variants: Array, allowed: Array) -> Array[Dictionary]:
+	# 只过滤本次无关的表示，资格沿用Loading缓存；跨档链折叠后保留全部空间分支。
+	var result: Array[Dictionary]=[]
+	for entry: Dictionary in roots:
+		var children: Array[Dictionary]=[]
+		children.assign(entry.get("children",[]))
+		children=transition_roots(children,variants,allowed)
+		var source: int=variants[int(String(entry.key).get_slice(":",0))%variants.size()]
+		if source in allowed:
+			var row := entry.duplicate()
+			row["children"]=children
+			result.append(row)
+		else: result.append_array(children)
+	return result
+
+
 static func qualified_roots(catalog: Dictionary, scale: float, work: Variant = null) -> Array[Dictionary]:
+	if catalog.has("transition_intervals"):
+		for interval: Dictionary in catalog.transition_intervals:
+			if scale>float(interval.lower) and scale<=float(interval.upper):
+				var ready: Array[Dictionary]=[]
+				ready.assign(interval.roots)
+				if catalog.has("selection_sources"):
+					return transition_roots(ready,catalog.transition_sources,catalog.selection_sources)
+				return ready
+		return []
 	# 静态资格与视野无关；相邻目录/当前及提前尺度交错时保留有限的精确资格区间。
 	# 每个可见切面仍逐帧投影求解，绝不把旧相机的选页结果当作当前覆盖证明。
 	var identity: Dictionary=catalog.get("identity",{})

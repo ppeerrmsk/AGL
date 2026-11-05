@@ -141,6 +141,13 @@ var _engine_host: Node2D = null
 const ENGINE_ZOOM_MIN := 0.6    # 小于此 zoom 完全静音（镜头太远）
 const ENGINE_ZOOM_MAX := 2.0    # 大于此 zoom 满音量（镜头贴近）
 
+const AudioShutdown := preload("res://scripts/audio/audio_shutdown.gd")
+var _shutdown_started := false
+var _shutdown_done := false
+var _shutdown_ok := false
+var _quit_requested := false
+var _quit_exit_code := 0
+
 func _ready() -> void:
 	# 树暂停（战术面板会 pause）时音乐不能断
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -172,6 +179,57 @@ func _ready() -> void:
 		add_child(p)
 		_sfx_pool.append(p)
 	_load_settings()
+	get_tree().auto_accept_quit = false
+	get_tree().root.close_requested.connect(request_quit)
+
+## 窗口关闭与程序退出共用有限清理；请求幂等，后到的失败码不能被成功码覆盖。
+func request_quit(exit_code: int = 0) -> void:
+	if exit_code != 0:
+		_quit_exit_code = exit_code
+	if _quit_requested:
+		return
+	_quit_requested = true
+	call_deferred("_finish_quit")
+
+func _finish_quit() -> void:
+	get_tree().paused = true
+	var clean := await prepare_shutdown()
+	get_tree().quit(_quit_exit_code if clean else maxi(_quit_exit_code, 1))
+
+## 停止生产新音频，等待异步播放回收与已发出的预载领取；上限2秒，不阻塞主线程。
+func prepare_shutdown() -> bool:
+	if _shutdown_started:
+		while not _shutdown_done:
+			await get_tree().process_frame
+		return _shutdown_ok
+	_shutdown_started = true
+	_playlist_active = false
+	_layer_active = false
+	_music_interrupt_checkpoint.clear()
+	_prefetch_queue.clear()
+	for tween: Tween in _tweens.values():
+		if tween.is_valid():
+			tween.kill()
+	_tweens.clear()
+	if _muffle_tween != null and _muffle_tween.is_valid():
+		_muffle_tween.kill()
+	var probes := AudioShutdown.stop_playbacks(get_tree().root)
+	var deadline := Time.get_ticks_msec() + 2000
+	var frames := 0
+	while Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+		frames += 1
+		_poll_stream_prefetch()
+		if AudioShutdown.remaining(probes) == 0 and _stream_pending.is_empty():
+			_shutdown_ok = true
+			break
+	_stream_cache.clear()
+	_shutdown_done = true
+	print("[AudioShutdown] frames=%d playback_remaining=%d pending_loads=%d clean=%s" % [
+		frames, AudioShutdown.remaining(probes), _stream_pending.size(), _shutdown_ok])
+	if not _shutdown_ok:
+		push_error("Audio shutdown timed out before playback/load references were released")
+	return _shutdown_ok
 
 # ═══════════════════════════════════════════════════
 #  Bus 初始化 — 程序化创建 Music/SFX/UI/Radio 总线
@@ -259,12 +317,16 @@ func _make_music_player() -> AudioStreamPlayer:
 # ═══════════════════════════════════════════════════
 
 func play_music(id: String, fade_in: float = 1.5, loop: bool = true) -> void:
+	if _shutdown_started:
+		return
 	_discard_music_interrupt_checkpoint()
 	_playlist_active = false
 	_stop_layered_internal(fade_in)
 	_play_music_internal(id, fade_in, loop)
 
 func _play_music_internal(id: String, fade_in: float, loop: bool) -> void:
+	if _shutdown_started:
+		return
 	var stream := _get_music(id)
 	if stream == null:
 		return
@@ -303,6 +365,8 @@ func has_music(id: String) -> bool:
 	return ResourceLoader.exists(path) or FileAccess.file_exists(path)
 
 func crossfade_music(id: String, duration: float = 2.0, loop: bool = true) -> void:
+	if _shutdown_started:
+		return
 	if not has_music(id):
 		return
 	_discard_music_interrupt_checkpoint()
@@ -312,6 +376,8 @@ func crossfade_music(id: String, duration: float = 2.0, loop: bool = true) -> vo
 
 func _crossfade_music_internal(id: String, duration: float, loop: bool,
 		from_position: float = 0.0, pause_out: bool = false) -> void:
+	if _shutdown_started:
+		return
 	var stream := _get_music(id)
 	if stream == null:
 		return
@@ -391,6 +457,8 @@ func _fade_amplitude(player: AudioStreamPlayer, target_amp: float, duration: flo
 ## 顺序轮播播放列表：首曲用 fade_in 淡入，之后每首播完自动 crossfade 下一首（循环）
 ## 调用 play_music/crossfade_music/stop_music 会自动终止播放列表模式
 func play_music_playlist(ids: Array, fade_in: float = 2.0, crossfade_between: float = 2.0) -> void:
+	if _shutdown_started:
+		return
 	if ids.is_empty():
 		return
 	_discard_music_interrupt_checkpoint()
@@ -406,6 +474,8 @@ func play_music_playlist(ids: Array, fade_in: float = 2.0, crossfade_between: fl
 ## 从当前曲等功率切入播放列表首曲；用于临时战斗主题结束后无空洞地恢复常规歌单。
 func crossfade_music_playlist(ids: Array, duration: float = 2.0,
 		crossfade_between: float = 2.0) -> void:
+	if _shutdown_started:
+		return
 	if ids.is_empty() or not has_music(String(ids[0])):
 		return
 	_discard_music_interrupt_checkpoint()
@@ -422,6 +492,8 @@ func crossfade_music_playlist(ids: Array, duration: float = 2.0,
 ## BOSS 等其它音乐入口会清掉 checkpoint，避免演出接管后又抢回旧地图曲。
 func crossfade_music_interrupt(id: String, duration: float = 2.0,
 		loop: bool = false) -> bool:
+	if _shutdown_started:
+		return false
 	if not has_music(id) or not _music_interrupt_checkpoint.is_empty():
 		return false
 	if _playlist_active and not _playlist.is_empty() and _active_music != null \
@@ -442,6 +514,8 @@ func crossfade_music_interrupt(id: String, duration: float = 2.0,
 
 ## 继续临时插入曲打断前的同一首歌、同一播放位置；没有 checkpoint 时由调用方决定 fallback。
 func resume_interrupted_music(duration: float = 2.0) -> bool:
+	if _shutdown_started:
+		return false
 	if _music_interrupt_checkpoint.is_empty():
 		return false
 	var checkpoint := _music_interrupt_checkpoint.duplicate()
@@ -515,6 +589,8 @@ func is_music_playing() -> bool:
 
 ## 同帧启动所有层，active_index 那层淡入到 0 dB，其他层保持 -80 dB 静音同步播放
 func play_layered_music(ids: Array, fade_in: float = 2.0, active_index: int = 0) -> void:
+	if _shutdown_started:
+		return
 	if not ids.is_empty():
 		_current_music_id = String(ids[0])
 	if ids.is_empty():
@@ -625,6 +701,8 @@ func set_music_muffled(muffled: bool, duration: float = 0.35) -> void:
 ## 若 world_pos 不在当前相机视口内（含 200px 容差）直接忽略，实现"指挥官只听视野里的事"。
 ## 视距内由 AudioStreamPlayer2D 自身的距离衰减决定音量（越远越轻，约 4000px 处不可闻）。
 func play_sfx_2d(id: String, world_pos: Vector2, volume_db: float = 0.0) -> void:
+	if _shutdown_started:
+		return
 	var perf_t0: int = Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
 	if perf_t0 > 0:
 		PerfBuckets.count("audio_sfx_requests")
@@ -655,6 +733,8 @@ func play_sfx_2d(id: String, world_pos: Vector2, volume_db: float = 0.0) -> void
 # ═══════════════════════════════════════════════════
 
 func start_player_engine(host: Node2D) -> void:
+	if _shutdown_started:
+		return
 	stop_player_engine()
 	var stream := _get_sfx("engine_f16")
 	if stream == null or host == null:
@@ -677,6 +757,8 @@ func stop_player_engine() -> void:
 	_engine_host = null
 
 func _process(_delta: float) -> void:
+	if _shutdown_started:
+		return
 	_update_engine_volume()
 	_check_playlist_early_crossfade()
 	if not _prefetch_queue.is_empty():
@@ -755,6 +837,8 @@ func _is_on_screen(world_pos: Vector2) -> bool:
 ## 与 play_ui 分开：UI 点击不得截断台词底噪，反之亦然。
 ## 素材缺失 = 静默 no-op，且【不 push_warning】—— 每条台词都会调一次，warning 会刷屏。
 func play_radio(id: String, volume_db: float = 0.0) -> void:
+	if _shutdown_started:
+		return
 	var perf_t0: int = Time.get_ticks_usec() if PerfBuckets.detail_capture_enabled() else 0
 	if perf_t0 > 0:
 		PerfBuckets.count("radio_requests")
@@ -774,6 +858,8 @@ func play_radio(id: String, volume_db: float = 0.0) -> void:
 		PerfBuckets.mark_frame_event("radio_line")
 
 func play_ui(id: String, volume_db: float = 0.0) -> void:
+	if _shutdown_started:
+		return
 	var stream := _get_ui(id)
 	if stream == null:
 		return
@@ -850,11 +936,15 @@ func _get_sfx(id: String) -> AudioStream:
 
 ## 后台线程预载音乐（Loading / BOSS 选定后调用）；未知、已常驻或在途的 id 直接跳过。
 func prefetch_music(ids: Array) -> void:
+	if _shutdown_started:
+		return
 	for id_any in ids:
 		_prefetch_stream(String(MUSIC_FILES.get(String(id_any), "")))
 
 ## 后台线程预载非常驻 SFX（如 6.7MB 引擎循环）；WEAPON/IMPACT 已随 AutoLoad 预载。
 func prefetch_sfx(ids: Array) -> void:
+	if _shutdown_started:
+		return
 	for id_any in ids:
 		var id := String(id_any)
 		if WEAPON_SFX.has(id) or IMPACT_SFX.has(id):

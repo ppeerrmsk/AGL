@@ -22,23 +22,46 @@ var ground: Dictionary={}
 var _ground_roots: Dictionary={}
 var selection_context: Dictionary={}
 var _selection_configurations: Dictionary={}
+var _prefetch_ancestors: Dictionary={}
+var _resident_component_ancestors: Dictionary={}
+var _resident_empty_ancestors: Dictionary={}
+var _resident_index_ready := false
+var read_stages_usec: Dictionary={}
+
+
+func retirement_data() -> Array:
+	var values: Array=[pages,coverage,_partition_roots,_partition_pages,ground,_ground_roots,
+		_selection_configurations,_prefetch_ancestors,_resident_component_ancestors,_resident_empty_ancestors,
+		selection_context,_selection_solutions]
+	if catalog!=null:
+		values.append_array([catalog.configurations,catalog.descriptors,catalog.regional_extension,catalog.full_grid])
+	return values
 
 
 func read(value: Variant) -> bool:
+	read_stages_usec={}
+	var started := Time.get_ticks_usec()
+	_resident_index_ready=false;_resident_component_ancestors={};_resident_empty_ancestors={}
 	selection_context={};_selection_configurations={}
-	_partition_roots.clear()
+	_partition_roots={}
 	_partition_pages.clear()
 	_selection_frame=-1
 	_selection_solutions.clear()
 	solver_peak.clear()
-	ground.clear();_ground_roots.clear()
+	ground={};_ground_roots={}
 	if not value is Dictionary or not Contract.binding(value.get("catalog")) or not Contract.binding(value.get("components")) or not value.get("coverage") is Dictionary: return false
 	catalog=load(value.catalog.path)
+	read_stages_usec["catalog_load"]=Time.get_ticks_usec()-started
+	started=Time.get_ticks_usec()
 	if not catalog is Catalog or catalog.schema_version!=2 or not catalog.valid(): return false
+	read_stages_usec["catalog_validate"]=Time.get_ticks_usec()-started
+	started=Time.get_ticks_usec()
 	catalog_sha=value.catalog.sha256
 	var component_data := Components.read(value.components.path,catalog,catalog_sha)
 	if component_data.is_empty(): return false
 	pages=component_data.pages
+	read_stages_usec["components"]=Time.get_ticks_usec()-started
+	started=Time.get_ticks_usec()
 	for configuration: String in Catalog.CONFIGURATIONS:
 		var binding: Variant = value.coverage.get(configuration)
 		if not Contract.binding(binding): return false
@@ -53,13 +76,20 @@ func read(value: Variant) -> bool:
 		for path: String in data.pages:
 			if data.pages[path].get("identity")!=catalog.descriptors.get(path,{}).get("canonical_identity"): return false
 		coverage[configuration]=data
+	read_stages_usec["coverage"]=Time.get_ticks_usec()-started
+	started=Time.get_ticks_usec()
 	if value.has("partition_override"):
 		var adapted := preload("res://scripts/rendering/tokyo_partition_override.gd").read(value.partition_override,catalog,catalog_sha,pages,coverage)
 		if adapted.is_empty(): return false
 		_partition_roots=adapted.roots
 		_partition_pages=adapted.pages
 		pages.merge(_partition_pages)
+		for configuration: String in adapted.get("coverage",{}): coverage[configuration]=adapted.coverage[configuration]
+	read_stages_usec["partitions"]=Time.get_ticks_usec()-started
+	started=Time.get_ticks_usec()
 	if value.has("ground_override"):
+		# 等价完整三层分区暂不接受另外替换地表的混合协议。
+		if value.get("partition_override",{}).get("allow_lossless_alternatives",false): return false
 		ground=preload("res://scripts/rendering/tokyo_native_ground.gd").read(value.ground_override,pages)
 		if ground.is_empty(): return false
 		for configuration: String in ground.limits:
@@ -69,6 +99,11 @@ func read(value: Variant) -> bool:
 				if adapted.is_empty(): return false
 				roots.append(adapted)
 			_ground_roots[configuration]=roots
+	read_stages_usec["ground"]=Time.get_ticks_usec()-started
+	started=Time.get_ticks_usec()
+	_prepare_prefetch_ancestors()
+	if preload("res://scripts/rendering/tokyo_installed_map.gd").runtime_option("AGL_TOKYO_RETURN_CACHE")=="1": prepare_resident_index()
+	read_stages_usec["indices"]=Time.get_ticks_usec()-started
 	return true
 
 
@@ -90,6 +125,7 @@ func selection_snapshot() -> Dictionary:
 
 
 func configure_selection_snapshot(snapshot: Dictionary, context: Dictionary) -> bool:
+	_resident_index_ready=false;_resident_component_ancestors={};_resident_empty_ancestors={}
 	# 此实例只属于单个后台规划器；原实例与调用方的来源容器之后都不能改变它。
 	if snapshot.get("schema")!=1 or not Contract.selection_context_valid(context) \
 		or not _selection_value_is_pure(snapshot) or not _selection_value_is_pure(context): return false
@@ -115,7 +151,99 @@ func configure_selection_snapshot(snapshot: Dictionary, context: Dictionary) -> 
 	selection_context=context.duplicate(true)
 	_selection_frame=-1;_selection_solutions={}
 	solver_builds=0;solver_reuses=0;solver_peak={}
+	_prepare_prefetch_ancestors()
 	return true
+
+
+func fork_selection(context: Dictionary) -> RefCounted:
+	# 同一个工作器串行执行当前/预测查询，只共享已经独占复制的只读地图表。
+	# 查询上下文、求解缓存与计数各自独立；不共享主线程的目录 Resource。
+	if catalog!=null or _selection_configurations.is_empty() or not Contract.selection_context_valid(context): return null
+	var fork: RefCounted=get_script().new()
+	fork.catalog_sha=catalog_sha
+	fork._selection_configurations=_selection_configurations
+	fork._partition_roots=_partition_roots
+	fork._ground_roots=_ground_roots
+	fork.ground=ground
+	fork.pages=pages
+	fork._prefetch_ancestors=_prefetch_ancestors
+	fork._resident_component_ancestors=_resident_component_ancestors
+	fork._resident_empty_ancestors=_resident_empty_ancestors
+	fork._resident_index_ready=_resident_index_ready
+	fork.selection_context=context.duplicate(true)
+	return fork
+
+
+func _prepare_prefetch_ancestors() -> void:
+	# 无损分区的父子是不同资源；缩远重新合页时也要提前准备父页。
+	# 只在加载/工作器初始化建立纯值索引，不在每次预测扫描整棵地图树。
+	_prefetch_ancestors={}
+	for roots: Array in _partition_roots.values():
+		var stack: Array=[]
+		for entry: Dictionary in roots: stack.append([entry,[]])
+		while not stack.is_empty():
+			var item: Array=stack.pop_back()
+			var entry: Dictionary=item[0]
+			var ancestors: Array=item[1]
+			if not ancestors.is_empty(): _prefetch_ancestors[entry.path]=ancestors
+			var next := ancestors.duplicate()
+			# 大父页会挤掉必要细页；小父页只补充同池中的可选合并表示。
+			if int(entry.bytes)<=1048576: next.append({"path":entry.path,"bytes":entry.bytes})
+			for child: Dictionary in entry.get("children",[]): stack.append([child,next])
+			for alternative: Array in entry.get("alternative_children",[]):
+				for child: Dictionary in alternative: stack.append([child,next])
+
+
+func prepare_resident_index() -> void:
+	# Loading 建立物理组件→可能包含已驻留候选的祖先。共享组件、所有LOD、
+	# 地表替代树和无损替代分支都取并集；宁可多查，不能把缺块当不可见。
+	_resident_component_ancestors={};_resident_empty_ancestors={}
+	var forests: Array=[]
+	forests.append_array(_configurations().values())
+	forests.append_array(_partition_roots.values());forests.append_array(_ground_roots.values())
+	for roots: Array in forests:
+		var stack: Array=[]
+		for entry: Dictionary in roots: stack.append([entry,PackedStringArray()])
+		while not stack.is_empty():
+			var item: Array=stack.pop_back()
+			var entry: Dictionary=item[0]
+			var ancestors: PackedStringArray=item[1].duplicate()
+			ancestors.append(entry.path)
+			if pages.has(entry.path):
+				var parts: Dictionary=pages[entry.path].get("components",{entry.path:{}})
+				if parts.is_empty():
+					for path: String in ancestors: _resident_empty_ancestors[path]=true
+				for part: String in parts:
+					var known: Dictionary=_resident_component_ancestors.get(part,{})
+					for path: String in ancestors: known[path]=true
+					_resident_component_ancestors[part]=known
+			for child: Dictionary in entry.get("children",[]): stack.append([child,ancestors])
+			for alternative: Array in entry.get("alternative_children",[]):
+				for child: Dictionary in alternative: stack.append([child,ancestors])
+	_resident_index_ready=true
+
+
+func resident_possible_nodes(meshes: Dictionary) -> Dictionary:
+	# 只遍历实际缓存；这不是ready证明，完整组件/贴图/资格仍由原函数核验。
+	var possible := _resident_empty_ancestors.duplicate()
+	for part: String in meshes:
+		for path: String in _resident_component_ancestors.get(part,{}): possible[path]=true
+	return possible
+
+
+func prefetch_ancestor_requests(cut: Dictionary, budget: int) -> Array[Dictionary]:
+	var result: Array[Dictionary]=[]
+	if budget<=0 or not cut.get("ground_images",PackedStringArray()).is_empty(): return result
+	var candidates := {}
+	for key: String in cut.get("keys",[]):
+		for ancestor: Dictionary in _prefetch_ancestors.get(key,[]):
+			if ancestor.path not in cut.keys: candidates[ancestor.path]=int(ancestor.bytes)
+	var paths := candidates.keys()
+	paths.sort_custom(func(a: String,b: String) -> bool: return candidates[a]>candidates[b] if candidates[a]!=candidates[b] else a<b)
+	for path: String in paths:
+		if int(candidates[path])>budget: continue
+		budget-=int(candidates[path]);result.append({"mesh":path,"image":""})
+	return result
 
 
 func _configurations() -> Dictionary:
@@ -161,6 +289,7 @@ func select(center: Vector2, scale_value: float, rotation_value: float, size: Ve
 	if not resident.is_empty():
 		var context := {"view":view,"canvas":canvas,"size":size,"roof":-Vector2(ray.x,ray.z)/ray.y,
 			"geometry":pages,"meshes":resident.meshes,"textures":resident.textures}
+		if _resident_index_ready: context["possible"]=resident_possible_nodes(resident.meshes)
 		for index in roots.size(): roots[index]=preload("res://scripts/rendering/tokyo_hlod_cached_cut.gd").native_tree(roots[index],context)
 	# 半池/全池只改变最终筛选；同帧同视野不重复求整棵候选树。
 	# 同帧允许保护带查询穿插；不缓存画面或Resource，跨帧整批失效。
@@ -193,6 +322,24 @@ func select(center: Vector2, scale_value: float, rotation_value: float, size: Ve
 	var cut := Cut.pick(solution,byte_budget)
 	if reused: cut.solver_usec=0
 	return decorate(cut,configuration,hybrid)
+
+
+func select_limited(center: Vector2, scale_value: float, angle: float, size: Vector2, configuration: String,
+		page_limit: int, face_limit: int, byte_limit: int) -> Dictionary:
+	# 只缩小既有选择上限；复用同次求解的完整前沿，不读取网格、不改来源与覆盖。
+	if page_limit<1 or page_limit>16 or face_limit<1 or face_limit>240000 or byte_limit<1 or byte_limit>96*1024*1024: return {}
+	var original := select(center,scale_value,angle,size,configuration,byte_limit)
+	if original.is_empty(): return {}
+	var hybrid := _ground_roots.has(configuration) and scale_value<=float(ground.limits[configuration])
+	var key: Array=[configuration,center,scale_value,angle,size,hybrid,Contract.native_page_limit(selection_context)]
+	if not _selection_solutions.has(key): return {}
+	var solved: Dictionary=_selection_solutions[key].duplicate()
+	var frontier: Array[Dictionary]=[]
+	for state: Dictionary in solved.frontier:
+		if state.active<=page_limit and state.faces<=face_limit and state.bytes<=byte_limit: frontier.append(state)
+	if frontier.is_empty(): return {}
+	solved.frontier=frontier
+	return decorate(Cut.pick(solved,byte_limit),configuration,hybrid)
 
 
 static func decorate(cut: Dictionary, configuration: String, hybrid: bool) -> Dictionary:
@@ -256,16 +403,22 @@ static func _layer_complete(entry: Dictionary, selected: Dictionary, view: Rect2
 	# AABB只能用于拒绝不可见节点，不能证明节点内部地面已填满。
 	# 原生分区三角守恒：选中祖先，或完整包含全部可见后代，才可安全暂留。
 	if entry.get("children",[]).is_empty(): return false
-	for child: Dictionary in entry.children:
-		if not _layer_complete(child,selected,view,canvas,logical,roof,kind): return false
-	return true
+	var choices: Array=[entry.children]
+	choices.append_array(entry.get("alternative_children",[]))
+	for children: Array in choices:
+		var complete := not children.is_empty()
+		for child: Dictionary in children:
+			if not _layer_complete(child,selected,view,canvas,logical,roof,kind):
+				complete=false;break
+		if complete: return true
+	return false
 
 
 func covered(cut: Dictionary) -> PackedInt32Array:
 	var committed: Dictionary = {}
 	for entry: Dictionary in cut.entries:
-		# 接合器逐旧页核验无游戏建筑；这些页不为任何旧楼提供隐藏凭据。
-		if _partition_pages.has(entry.path): continue
+		# 普通概括页没有正式楼凭据；只有逐面无损重认证的新页可参与隐藏判定。
+		if _partition_pages.has(entry.path) and not coverage[cut.configuration].pages.has(entry.path): continue
 		var layers := 0
 		for kind in 3:
 			if entry.mask[kind]: layers|=1<<kind

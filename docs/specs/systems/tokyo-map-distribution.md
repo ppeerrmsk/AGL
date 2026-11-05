@@ -3,7 +3,7 @@ id: tokyo-map-distribution
 kind: system
 status: in-progress
 schema_version: 1
-spec_version: 1
+spec_version: 5
 owner: AGL
 depends_on: [systems/tokyo-bay-volume-map, systems/tokyo-prepared-streaming]
 reconstruction_complete: false
@@ -21,7 +21,7 @@ reconstruction_complete: false
 - **背景**：按旧导出预设把 M20 打进主 PCK，Godot 4.7.2 编辑器在写完全部文件后的收尾阶段单核空转超过 60 分钟不完成（§3.5）。
   2026-10-19 的 release 测量改用"M20 不进 PCK、在程序目录放同路径目录"的做法：导出包里主 PCK 没有的 `res://` 文件
   会回落到"当前工作目录 + 相对路径"，所以只在工作目录恰好是程序目录时成立，不能发行。
-- **不变量**：地图内容、包内 `res://` 路径、`package.json` 摘要与流送/校验代码全部不变；本规格只改"文件怎么到达 `res://`"。
+- **不变量**：每个已发行版本的地图内容、包内 `res://` 路径与 `package.json` 摘要不改写；本规格只改"文件怎么到达 `res://`"。
 - **Litmus 自检**：本规格不涉及玩法数值、战斗规则与美术；不以减少地图内容、降低精度或隐藏地图换取打包可行性。
 - **反模式规避**：不在流送、`tokyo_installed_map` 或任何共享层写"导出版 / 编辑器版"分支；路径差异只在启动最早的挂载点消化。
 
@@ -34,7 +34,9 @@ reconstruction_complete: false
 | `AGL.exe` + `AGL.pck` | 主包，由编辑器导出预设 `Windows Desktop` 生成，**不含** `resources/maps/tokyo_playable/` 与 `resources/maps/tokyo_volume_preview/` 下任何文件 |
 | `maps/tokyo_playable_m20.pck` | M20 地图包 = 安装器认定的"M20 运行时"：`res://resources/maps/tokyo_playable/m20/` 下全部文件，加上三维启用门 `res://resources/maps/tokyo_volume_preview/downtown_lod.res`；包内路径与开发机散文件路径逐字相同 |
 
-三维启用门：东京三维层只在 `downtown_lod.res` 存在时启用，缺它时正常路径整体退回二维底图（即使 M20 在）。它和 M20 一样不入库、随地图安装包下发，所以随地图包走，保证"有地图包 = 有三维地图"。
+`m20_continuity_fixed` 是历史诊断候选，当前不挂载、不作为发行依赖；其旧路线通过结果未覆盖后来复现的 F5 视角。2026-10-31 用户否决 v4 移动时严重模糊，撤下概括清单包；当前保留 M20 与 `m20_f5_candidate_20261026` 原生分区包，HLOD 清晰度恢复为原 M20。普通 F5 无需参数，注册不等同于发行包已经重新构建。
+
+三维启用门：东京三维层需要 `downtown_lod.res`，它和 M20 一样不入库、随地图安装包下发。正式 installed M20 路由缺少必需资源或未接入 HLOD 时，按 [prepared streaming §5.4](tokyo-prepared-streaming.md#54-m20-三维地图为正式表现层) 明确报错并保持旧栅格关闭，不得静默退回旧 PNG。UGC 自带底图的兼容路径不受此规则替代。
 
 地图包格式：Godot 引擎自带 `PCKPacker` 写出的标准 PCK（与运行它的引擎同版本的包格式与版本号），不加密，
 文件按包内路径字典序写入，每个文件起点按 32 字节对齐。读取端要求引擎 major.minor 不低于打包端。
@@ -43,8 +45,9 @@ reconstruction_complete: false
 
 | 设置 | 值 | 说明 |
 |---|---|---|
-| `rendering/tokyo_map/installed_package` | `res://resources/maps/tokyo_playable/m20/package.json` | 不变；正常游戏入口读这份包 |
-| `rendering/tokyo_map/installed_packs` | `PackedStringArray("maps/tokyo_playable_m20.pck")` | 启动时依序挂载的地图包，路径**相对可执行文件所在目录** |
+| `rendering/tokyo_map/installed_package` | `res://resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json` | 原 M20 清晰度范围与纹理，保留普通建筑原生分区 |
+| `rendering/tokyo_map/installed_packs` | 依次挂载 `maps/tokyo_playable_m20.pck`、`maps/tokyo_playable_m20_f5_candidate_20261026.pck` | 基础资源与原生分区；路径**相对可执行文件所在目录** |
+| `rendering/tokyo_map/streaming_optimization_enabled` | `true` | 启用缓存和预取等配置，关闭粗化常驻层；无需 F5 参数 |
 
 ### 2.3 主包导出过滤
 
@@ -116,7 +119,7 @@ Godot 过滤器的 `*` 跨目录匹配，`resources/maps/tokyo_playable/*` 排�
 1. **导出主包**：`AGL_BENCH_EXPORT_RELEASE=<发行目录>\AGL.exe`，`bench\run.cmd export_release 1 <超时> Shadow Headless`。
    过滤器已排除 M20，导出不再为它付 O(N²) 收尾；但若工程里有散装 M20，编辑器启动时仍要扫描它（冷缓存约 26 分钟），
    所以推荐在不含 M20 的工作树里导出。
-2. **打地图包**：在不含散装 M20 的工作树里跑 `tokyo_map_pack`，输出到 `<发行目录>\maps\tokyo_playable_m20.pck`。
+2. **打地图包**：当前默认仅分发 `<发行目录>\maps\tokyo_playable_m20.pck`，与 `installed_package` 和 `installed_packs` 一致。已有校验收据有效且源身份未变时复用既有包；需要生成时在不含同路径散文件的工作树跑 `tokyo_map_pack`，输出 M20 包。`m20_continuity_fixed` 已撤出当前依赖，不能照旧流程额外分发；新候选须完成验收并登记后才按第 4 步追加，原已发行包不重写。
 3. **验收**：按 §5 用导出包、非程序目录的工作目录跑一次 `tokyo_volume_c2`。
 本节取代 [tokyo-bay-volume-map](tokyo-bay-volume-map.md) 里"导出必须包含 native/*.bin"与"组件清单及 11 份 coverage 的 bin 须进导出过滤器"两处主包导出要求：这些文件改随地图包分发，开发机散文件布局不变。
 
@@ -255,3 +258,10 @@ Godot 过滤器的 `*` 跨目录匹配，`resources/maps/tokyo_playable/*` 排�
 |---|---|---|
 | 2026-10-19 | 1 | 初稿：独立 PCK（M20 + 三维启用门）+ 启动最早挂载；4.7.2 导出收尾 O(N²) 根因与合成实测；E1–E3 验收 |
 | 2026-10-19 | 1 | 用户认可按本稿定稿并合并（PR #9）；status 保持 in-progress，剩余验收为 §5 的正式完整局与 §6 阶段 3 |
+| 2026-10-23 | 2 | 地图连续性修复验收后，默认入口改为固定无损分区包，发行布局补原 M20 与固定增量包的依赖和挂载顺序。本次仅验开发机入口，未重新导出或发布，发行验收仍保留待完成。 |
+| 2026-10-26 | 3 | 当前入口恢复 main 原 M20；旧固定候选未解决新的 F5 失败视角，撤销其当前默认与发行依赖表述，保留历史证据。 |
+| 2026-10-28 | 3 | 经验整理时修正文档残留：§3.3 与既有撤回决定对齐，只要求当前 M20；§2.1 与已实现的正式 M20 禁旧栅格回退一致。仅纠正文档，不更改安装配置、不重新打包或发布。 |
+
+2026-10-30（v4）：用户明确授权将三轮通过的运动概括接到普通 F5。默认包改为保持原摘要的 v4，登记 M20 + 原生分区 + v4 三个物理版本依赖；本次验证为本地散文件入口，不冒充已经重打包的独立发行版。
+
+2026-10-31（v5）：撤下用户否决的 v4 低清概括包，恢复原 M20 清晰度的原生分区包入口与两包依赖；保留无参数启动。

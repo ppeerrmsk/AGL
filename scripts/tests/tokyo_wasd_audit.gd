@@ -82,7 +82,7 @@ static func run(battle: Node, map: Node, record: Dictionary, stream_ref: WeakRef
 	var anchor := anchor_for_route(route)
 	if not anchor.is_finite():
 		push_error("Tokyo WASD route rejected: " + route)
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	var start_scale := 0.65
 	if OS.get_environment("AGL_TOKYO_WASD_SCALE").is_valid_float():
@@ -124,6 +124,7 @@ static func run(battle: Node, map: Node, record: Dictionary, stream_ref: WeakRef
 	var plan_components: Dictionary={}
 	var previous: Vector2=battle.camera.global_position
 	var snapshots: Array[Dictionary]=[]
+	var snapshot_images: Array[Dictionary]=[]
 	var static_map := map as StaticOverlay
 	var static_cut: Dictionary={"configuration":"lod5_full","entries":[],"keys":PackedStringArray()}
 	var static_catalog: Dictionary={"rows":{}}
@@ -261,6 +262,9 @@ static func run(battle: Node, map: Node, record: Dictionary, stream_ref: WeakRef
 		missing+=int(gap)
 		peak_fraction=maxf(peak_fraction,coverage.uncovered_fraction)
 		if (gap or not cut_covered) and snapshots.size()<8 and (snapshots.is_empty() or elapsed-int(snapshots.back().ms)>=1000):
+			if snapshots.is_empty():
+				record["first_gap_selection"]=map._selection_trace.slice(maxi(0,map._selection_trace.size()-40))
+				record["selection_trace_started_msec"]=started
 			var layer_detail := layer_gap_snapshot(map,view,canvas,logical)
 			var target_status := {"covers_view":map._target_covers_current_view(),"missing_meshes":[],"missing_images":[]}
 			# 只在有界失败快照保存身份，不复制Resource，不在游戏帧里额外求切面。
@@ -311,14 +315,19 @@ static func run(battle: Node, map: Node, record: Dictionary, stream_ref: WeakRef
 						elif map._stream._texture_retiring.has(path): stage="retiring"
 						target_status.missing_images.append({"path":path,"wanted":path in map._stream._texture_wanted,"pending":map._stream._texture_jobs.has(path),"retiring":map._stream._texture_retiring.has(path),"bytes":map._textures[path].charge,"stage":stage})
 			var index := snapshots.size()
-			native.save_png(output.path_join("gap_%02d_native.png"%index))
-			battle.get_viewport().get_texture().get_image().save_png(output.path_join("gap_%02d.png"%index))
+			# 记录原帧图像，结束后才压缩写盘，避免失败截图制造后续卡顿与额外缺口。
+			snapshot_images.append({"index":index,"native":native,"screen":battle.get_viewport().get_texture().get_image()})
 			snapshots.append({"ms":elapsed,"position":str(previous),"fraction":coverage.uncovered_fraction,"state":map.debug_state(),"display_tree_covered":display_tree_covered,"static_display":static_active,
 				"cut_covered":cut_covered,"camera_lag":camera_lag,"view":str(view),"committed_keys":map._committed.duplicate(),"target_keys":target_keys.duplicate(),"target_status":target_status,"layer_detail":layer_detail})
 	if handoff_trace: record["handoff_trace"]={"diagnostic_only":true,"limit":1024,"plans":plans,"identities":plan_identities,"components":plan_components,"watched_events":watched_events,"watched_limit":512}
+	if handoff_trace: record["selection_trace"]=map._selection_trace.duplicate()
 	var release := InputEventKey.new()
 	release.keycode=held;release.physical_keycode=held;release.pressed=false
 	Input.parse_input_event(release)
+	for capture: Dictionary in snapshot_images:
+		record.fail+=int(capture.native.save_png(output.path_join("gap_%02d_native.png"%capture.index))!=OK)
+		record.fail+=int(capture.screen.save_png(output.path_join("gap_%02d.png"%capture.index))!=OK)
+	snapshot_images.clear()
 	record["wasd"]={"frames":frames,"missing_frames":missing,"hidden_frames":hidden,"peak_uncovered_fraction":peak_fraction,
 		"peak_screen_speed":peak_speed,"world_distance":distance,"snapshots":snapshots,"performance_sample":false,
 		"uncovered_cut_frames":uncovered_cut_frames,"covered_cut_gap_frames":covered_cut_gap_frames,"camera_lag_frames":camera_lag_frames}
@@ -346,7 +355,7 @@ static func run(battle: Node, map: Node, record: Dictionary, stream_ref: WeakRef
 	record.wasd["runtime_sha256"]={}
 	for name_value: String in ["tokyo_hlod_overlay","tokyo_static_hlod_overlay","tokyo_hlod_native","tokyo_hlod_stream","tokyo_component_stream","tokyo_cell_stream","tokyo_hlod_handoff","tokyo_hlod_manifest","tokyo_hlod_cached_cut","tokyo_hlod_cache_policy","tokyo_volume_preload"]:
 		record.wasd.runtime_sha256[name_value]=FileAccess.get_sha256("res://scripts/rendering/%s.gd"%name_value)
-	record.fail+=int(missing>0 or uncovered_cut_frames>0 or budget_frames>0 or frames<seconds*15 or peak_speed<2300 or distance<1000)
+	record.fail+=int(missing>0 or hidden>0 or uncovered_cut_frames>0 or budget_frames>0 or frames<seconds*15 or peak_speed<2300 or distance<1000)
 	tree.change_scene_to_file("res://scenes/main_menu.tscn")
 	var deadline := Time.get_ticks_msec()+10000
 	while stream_ref.get_ref()!=null and Time.get_ticks_msec()<deadline: await tree.process_frame
@@ -355,4 +364,4 @@ static func run(battle: Node, map: Node, record: Dictionary, stream_ref: WeakRef
 	var file := FileAccess.open(output.path_join("report.json"),FileAccess.WRITE)
 	file.store_string(JSON.stringify(record,"\t"));file.close()
 	print("[Tokyo WASD] frames=",frames," missing=",missing," hidden=",hidden," speed=",peak_speed," fail=",record.fail)
-	tree.quit(1 if record.fail else 0)
+	AudioManager.request_quit(1 if record.fail else 0)

@@ -85,7 +85,7 @@ func global_admission(package_pressure: float, package_presence: int) -> Diction
 		return _deny("boss")
 	if _mode.has_method("is_ace_encounter_active") and bool(_mode.is_ace_encounter_active()):
 		return _deny("ace_reserved")
-	if _spawner.zone_mission != null and _spawner.zone_mission.is_player_in_active_mission():
+	if _spawner.zone_mission != null and _spawner.zone_mission.mission_reserves_reinforcements():
 		return _deny("mission_reserved")
 	if _recovery_remaining > 0.0:
 		return _deny("recovery")
@@ -285,6 +285,19 @@ func _recompute() -> void:
 	_previous_presence_hostile = _presence_hostile
 
 
+## 用一个最短派队间隔预测双方最近距离，涵盖迎头接近、横穿和同向远离。
+static func mission_contact_due(unit: CombatUnit, player: Aircraft) -> bool:
+	var relative := unit.global_position - player.global_position
+	var radius_sq := SurvivorData.HUNTER_TRANSIT_GRAB_DIST_PX ** 2
+	if relative.length_squared() <= radius_sq:
+		return true
+	var closing := (Vector2.UP.rotated(unit.heading) * unit.speed
+		- Vector2.UP.rotated(player.heading) * player.speed) * CombatUnit.PIXELS_PER_METER
+	var nearest_s := clampf(-relative.dot(closing) / maxf(closing.length_squared(), 0.001),
+		0.0, SurvivorData.TRAVEL_SPAWN_INTERVAL_MIN)
+	return (relative + closing * nearest_s).length_squared() <= radius_sq
+
+
 func _derive_state(ac: Aircraft, now: float) -> int:
 	var phase := str(ac.get_meta("reinf_phase", ""))
 	if phase == "egress" or bool(ac.get_meta("encounter_retreating", false)):
@@ -307,6 +320,9 @@ func _derive_state(ac: Aircraft, now: float) -> int:
 		return PressureState.ACTIVE_ALLY_ONLY
 	if now < float(_disengage_until.get(uid, 0.0)):
 		return PressureState.DISENGAGING
+	if ac.get_meta("zone_ingress", false) and _spawner != null \
+			and is_instance_valid(_spawner.player_aircraft) and mission_contact_due(ac, _spawner.player_aircraft):
+		return PressureState.APPROACHING
 	if phase == "transit" or bool(ac.get_meta("encounter_approaching", false)):
 		return PressureState.APPROACHING
 	return PressureState.DORMANT

@@ -339,4 +339,4 @@ func _finish() -> void:
 		ProjectSettings.globalize_path(OUTPUT_DIR),
 	])
 	await get_tree().process_frame
-	get_tree().quit(0 if _fail_count == 0 else 1)
+	AudioManager.request_quit(0 if _fail_count == 0 else 1)

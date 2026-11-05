@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$GodotExe,
     [Parameter(Mandatory = $true)]
@@ -194,6 +194,51 @@ function Sync-ShadowProject([string]$sourceDir, [string]$destinationDir) {
     }
     if (Test-Path -LiteralPath $visualOutputDir -PathType Container) {
         Remove-Item -LiteralPath $visualOutputDir -Recurse -Force
+    }
+}
+
+
+function Apply-ShadowSourceOverlay([string]$manifestPath, [string]$destinationDir) {
+    # 显式 A/B 仅覆盖隔离副本；先校验完整清单，绝不临时改写编辑器正在使用的源码。
+    Assert-SafeShadowPath $destinationDir
+    $taskPrefix = [System.IO.Path]::GetFullPath((Join-Path $ProjectDir 'tmp')).TrimEnd('\') + '\'
+    if (-not [System.IO.Path]::IsPathRooted($manifestPath) -or
+        -not [System.IO.Path]::GetFullPath($manifestPath).StartsWith($taskPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'source overlay manifest must be an absolute file inside project tmp'
+    }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($manifest.schema -ne 1 -or @($manifest.files).Count -lt 1 -or @($manifest.files).Count -gt 32) {
+        throw 'invalid source overlay manifest'
+    }
+    $scriptPrefix = [System.IO.Path]::GetFullPath((Join-Path $destinationDir 'scripts')).TrimEnd('\') + '\'
+    $copies = @()
+    $seen = @{}
+    foreach ($entry in $manifest.files) {
+        $relative = [string]$entry.path
+        $source = [string]$entry.source
+        $destination = [System.IO.Path]::GetFullPath((Join-Path $destinationDir $relative))
+        if ([System.IO.Path]::IsPathRooted($relative) -or
+            -not $destination.StartsWith($scriptPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+            [System.IO.Path]::GetExtension($destination) -ne '.gd' -or $seen.ContainsKey($destination) -or
+            -not [System.IO.Path]::IsPathRooted($source) -or
+            -not [System.IO.Path]::GetFullPath($source).StartsWith($taskPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath $source -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $destination -PathType Leaf)) {
+            throw "invalid source overlay entry: $relative"
+        }
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = [BitConverter]::ToString($sha.ComputeHash([System.IO.File]::ReadAllBytes($source))).Replace('-', '').ToLowerInvariant()
+        } finally {
+            $sha.Dispose()
+        }
+        if ($hash -ne [string]$entry.sha256) { throw "source overlay hash mismatch: $relative" }
+        $seen[$destination] = $true
+        $copies += @{ Source = $source; Destination = $destination; Relative = $relative; Hash = $hash }
+    }
+    foreach ($copy in $copies) {
+        Copy-Item -LiteralPath $copy.Source -Destination $copy.Destination -Force
+        Write-Host "[bench] shadow source overlay $($copy.Relative) sha256=$($copy.Hash)"
     }
 }
 
@@ -437,6 +482,13 @@ try {
         $runProjectDir = $shadowProjectDir
     }
 
+    if ($env:AGL_BENCH_SOURCE_OVERLAY) {
+        if ($RunMode -ne 'Shadow' -or $exportedExe -ne '' -or $exportRelease -ne '') {
+            throw 'source overlay is only supported by editor Shadow benches'
+        }
+        Apply-ShadowSourceOverlay $env:AGL_BENCH_SOURCE_OVERLAY $shadowProjectDir
+    }
+
     if ($TimeoutSeconds -eq 0) {
         $TimeoutSeconds = [Math]::Max(120, $DurationSeconds + 90)
     }
@@ -468,7 +520,7 @@ try {
         $launchExe = $exportedExe
         $benchWindowPosition = if ($interactiveVisual) { '80,80' } else { '32000,32000' }
         if ($DisplayMode -eq 'Visual') {
-            $godotArguments = '{0}--rendering-method gl_compatibility --windowed --resolution 1600x900 --position {3} -- --bench={1} --duration={2}' -f `
+            $godotArguments = '{0}--audio-driver Dummy --rendering-method gl_compatibility --windowed --resolution 1600x900 --position {3} -- --bench={1} --duration={2}' -f `
                 $fixedFpsOption, $Scenario, $DurationSeconds, $benchWindowPosition
         } else {
             $godotArguments = '{0}--headless -- --bench={1} --duration={2}' -f $fixedFpsOption, $Scenario, $DurationSeconds
@@ -477,7 +529,7 @@ try {
         # Keep the real GL Compatibility renderer while placing the transient test
         # window off-screen. The process remains owned by the same watchdog/job.
         $benchWindowPosition = if ($interactiveVisual) { '80,80' } else { '32000,32000' }
-        $godotArguments = '{0}--path "{1}" --rendering-method gl_compatibility --windowed --resolution 1600x900 --position {4} -- --bench={2} --duration={3}' -f `
+        $godotArguments = '{0}--audio-driver Dummy --path "{1}" --rendering-method gl_compatibility --windowed --resolution 1600x900 --position {4} -- --bench={2} --duration={3}' -f `
             $fixedFpsOption, $runProjectDir.Replace('"', '\"'), $Scenario, $DurationSeconds, $benchWindowPosition
     } else {
         $godotArguments = '{0}--headless --path "{1}" -- --bench={2} --duration={3}' -f `
@@ -570,9 +622,9 @@ try {
     $stderrText = $stderrTask.Result
     [Console]::Out.Write($stdoutText)
     [Console]::Error.Write($stderrText)
-    if (Test-Path -LiteralPath $timeoutMarker) {
+    $didTimeout = Test-Path -LiteralPath $timeoutMarker
+    if ($didTimeout) {
         [Console]::Error.WriteLine("[bench] ERROR: Godot exceeded ${TimeoutSeconds}s; its entire process tree was terminated.")
-        exit 124
     }
     $runtimeErrorBlocks = @(Get-BenchRuntimeErrorBlocks $stdoutText $stderrText)
     if ($runtimeErrorBlocks.Count -gt 0) {
@@ -586,11 +638,11 @@ try {
                     "TYPE_OBJECT and is_instance_valid before is/as/field access.")
             }
         }
-        if ($child.ExitCode -eq 0) {
-            # Distinct from assertion failure (1), launcher failure (2), lock (3), timeout (124).
-            exit 86
-        }
+        # Runtime failure takes precedence over assertion failure as well as success.
+        # Otherwise a simultaneous FPS assertion can disguise a compilation failure as code 1.
+        exit 86
     }
+    if ($didTimeout) { exit 124 }
     exit $child.ExitCode
 } catch {
     [Console]::Error.WriteLine("[bench] ERROR: $($_.Exception.Message)")

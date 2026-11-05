@@ -111,6 +111,7 @@ func _process(_delta: float) -> void:
 			# 沙漠等 UGC 地图在 SurvivorMode 里才注入自身地理；按官方地理提前算的结果
 			# 会随地理数组替换自动作废，提前算无意义，跳过。
 			if not get_tree().has_meta("ugc_map_path"):
+				preload("res://scripts/survivor/ground_obstacles.gd").ready()
 				ZoneData.prewarm_zone_land()
 			_stage = Stage.TEMPLATES
 		Stage.TEMPLATES:

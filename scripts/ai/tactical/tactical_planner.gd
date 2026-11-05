@@ -87,9 +87,29 @@ static func plan(s: Situation, waypoint: Vector2 = Vector2.INF) -> TacticalPlan:
 		held.rationale += " | held %.2fs (was %s)" % [
 			s.prev_intent_held_for, TacticalPlan.intent_name(fresh.intent)
 		]
-		return _apply_surround_axis(s, _apply_weapon_lock(s, held))
+		return _apply_missile_launch_window(s, _apply_surround_axis(s, _apply_weapon_lock(s, held)))
 
-	return _apply_surround_axis(s, fresh)
+	return _apply_missile_launch_window(s, _apply_surround_axis(s, fresh))
+
+
+## 追击与火控闭环：已有发射解时主动收坡，避免无限高 G 跟转。
+## 玩家偏好路径绕过旧物理降坡，故在这里补齐；AI 旧降坡不叠乘。
+## 只用已有 plan 坡度接口，不抢航点、规避、攻击跑控制权。
+static func _apply_missile_launch_window(s: Situation, p: TacticalPlan) -> TacticalPlan:
+	if not s.is_tactical_preference_user or s.missile_launch_bank_limit_deg <= 0.0 \
+			or not s.has_target or not s.target_locked \
+			or s.tgt_is_surface or s.tgt_is_slow_air or not p.allow_missile_fire \
+			or p.weapon_mode != TacticalPlan.WeaponMode.MISSILE:
+		return p
+	if is_finite(s.surround_bearing) and s.dist_m >= SURROUND_CONVERGE_M:
+		return p
+	match p.intent:
+		TacticalPlan.Intent.CLOSE_TAIL, TacticalPlan.Intent.TAIL_CHASE, \
+		TacticalPlan.Intent.LEAD_TURN, TacticalPlan.Intent.LEAD_PURSUIT, TacticalPlan.Intent.LAG_PURSUIT:
+			p.bank_limit_deg = minf(p.bank_limit_deg, s.missile_launch_bank_limit_deg) \
+				if p.bank_limit_deg > 0.0 else s.missile_launch_bank_limit_deg
+			p.rationale += " | 发射收坡≤%.1f°" % p.bank_limit_deg
+	return p
 
 
 ## 能量型机体用更高 G 赢转率，但不把速度压到物理角点以下；紧半径型保留原 corner 目标。

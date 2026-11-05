@@ -3387,7 +3387,7 @@ const AH64_LATERAL_SPACING := 260.0  ## 横向展宽间距（像素）
 
 ## F-47 王牌狙击小队（BOSS，事件触发，4 架编队）
 const XP_PER_KILL_F47 := 100       ## F-47 击杀经验（王牌级，4 架共 400 XP）
-const F47_SQUAD_SIZE := 4           ## 编队成员数（固定 4 架）
+const F47_SQUAD_SIZE := 6           ## 固定六机：4 KNIGHT + 2 SNIPER
 const F47_STANDOFF_RADIUS_MIN := 1800.0  ## 被追时逃跑最小距离（像素）— 不飞太远
 const F47_STANDOFF_RADIUS_MAX := 2500.0  ## 被追时逃跑最大距离（像素）
 const F47_FLEE_DISTANCE := 2000.0   ## 被盯飞机的逃跑距离（像素）

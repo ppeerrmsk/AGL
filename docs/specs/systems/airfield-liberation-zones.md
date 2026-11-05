@@ -3,7 +3,7 @@ id: airfield-liberation-zones
 kind: system
 status: done  # 2026-07-29 用户确认工程落地可收口
 schema_version: 1
-spec_version: 10
+spec_version: 11
 owner: ppeerrmsk
 depends_on: [zone-reward-docking, survivor-loop]
 reconstruction_complete: false
@@ -13,7 +13,7 @@ reconstruction_complete: false
 
 > 三座机场（羽田 / 木更津 / 調布）开局是**敌占战区**，圆圈里驻着两三门地面防空、
 > 靠近就有敌机升空迎战；把地面防空全清掉＝**解放机场**，机场就地变成一次性友军补给点
-> （降落＝回血 / 进化 / 送僚机）。奖励就是这座机场本身。
+> （降落后在整备与增加僚机之间二选一，规则见 zone-reward-docking §2.2.1）。奖励就是这座机场本身。
 
 ## 1. 设计意图（Why）
 
@@ -114,7 +114,7 @@ reconstruction_complete: false
 | `dock_kind` | `"airfield"` | 复用现有机场停靠外观 / 判定 |
 | `radius` | 600 | DockPoint 默认 |
 | 一次性 | 是（`_spent` after 1 landing） | 用户："一次性"；降落一次即关闭、标记消失 |
-| 着陆功能 | 全队回血 + 进化结算 + 送 1 架僚机 | 复用 `_on_dock_docked` 既有全套 |
+| 着陆功能 | 整备 / 增加僚机二选一；进化完整维修，无达标出口才保留维修并领取可用专属 | 复用 `_on_dock_docked`；规则统一见 zone-reward-docking §2.2.1 |
 | 友军防空伞 | 基础 AA×2（ALLY）；已购“机场防空网授权”时追加 SAM×1 | **渐进刷出**，不 dock 门控；永久授权细则见依赖 spec |
 
 - **友军防空伞（2026-08-02 永久授权化）**：一旦机场被打下来（解放），就在该机场**逐渐刷出**
@@ -235,7 +235,7 @@ on 首次 _spawn_zone_units(airfield_zone):
 - **`DockPoint`**：无需改（一次性 `_spent` 语义已具备）。
 - **i18n**：`ZONE_MISSION_AIRFIELD`、`ZONE_REWARD_AIRFIELD`（三语）。机场/战区名复用 `DOCK_*_NAME`。
 - **F6 Debug 访问**：按钮“立即访问机场 / 进化树”每次创建一个独立临时 Debug 停靠点，复用
-  正式停靠的回血与进化结算，但不读取、解放、消费地图上的三座机场，也不写生涯停靠记录；
+  正式停靠的整备/增员选择，但不读取、解放、消费地图上的三座机场，也不写生涯停靠记录；
   临时点用完即释放，因此可无限访问，正式玩法不受影响。
 
 ## 5. 验收标准（Acceptance / Litmus）
@@ -246,7 +246,7 @@ on 首次 _spawn_zone_units(airfield_zone):
 - [ ] 打光 3 门地面防空 → 红圈消失、圆心出现友军机场补给点。
 - [ ] 解放后即使**不降落**，未购授权也只逐个刷出 ALLY AA×2（0s / 4s），不会出现友军 SAM。
 - [ ] 已购机场防空网永久授权时追加 SAM×1（8s）；每局每座机场均生效，战损不重生。
-- [ ] 降落该机场一次 → 全队回血 + 进化结算 + 送僚机；补给点随即标记消失（一次性）。
+- [ ] 降落该机场一次 → 打开整备/增员互斥决策，不提前回血或送僚机；补给点随即标记消失（一次性）。
 - [ ] 三座机场互相独立；解放一座不影响另两座；均**不**改变 BOSS 解锁时机（仍 600s 时间闸）。
 - [ ] Tab 悬停任意战区：奖励块正确显示 kind（航母/僚机/武器/次世代），**不再出现"生存"死词**。
 - [ ] 性能：跑生存模式 Sentinel + Lv5+ 压测，FPS 掉幅 < 15（机场刷怪走既有链，无新每帧扫描）。
@@ -299,6 +299,8 @@ on 首次 _spawn_zone_units(airfield_zone):
 | reference 索引行 | code-index.md「机场解放战区」行 / script-index.md ROE 行 |
 
 ## 8. 变更记录
+
+2026-10-24 / v11：着陆功能与 F6 入口统一遵循 zone-reward-docking 的整备/增员互斥规则。
 
 | 日期 | spec_version | 改动 |
 |---|---|---|

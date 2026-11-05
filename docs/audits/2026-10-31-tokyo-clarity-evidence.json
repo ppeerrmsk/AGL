@@ -1,0 +1,382 @@
+{
+  "schema": 1,
+  "date": "2026-10-31",
+  "scope": "restore movement clarity; freeze investigation deferred",
+  "root": "F:/AGL",
+  "source_sha256": "0396dd54db3c0351acfb6abf41235a43562ceb604596900a98dad333503a0ab0",
+  "installed_package": "res://resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+  "package_sha256": "8a5fc7bdc24fa36edf90f2d49deedff2297477ce1ff29bf0f0614eaf304ebf7f",
+  "v4_rejected_by_user": true,
+  "manual_f5_after_fix_accepted": false,
+  "runs": [
+    {
+      "kind": "focused",
+      "tag": "c1-focused",
+      "exit_code": 86,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "B975896398AD59A7F75607E93CAC8C126745356BC2C0786ED20D1914953DC3EE",
+      "default_route": true,
+      "exit_report_sha256": "3a63f5a57fddbaa6c7c5a39be5746a823468663a233f7a209425f69fe3abc6a9",
+      "log_sha256": "24b0b881f3bf78e639907d83e06740d031f0c8cf75cd578e18510c8f84d801c6"
+    },
+    {
+      "kind": "focused",
+      "tag": "c2-focused",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "0396DD54DB3C0351ACFB6ABF41235A43562CEB604596900A98DAD333503A0AB0",
+      "default_route": true,
+      "exit_report_sha256": "d6a310373e7b0dde69b0b3a04db54fe7f9c78681a68ecfeaa2b3c919155847a5",
+      "log_sha256": "6b9edc2edc277dd12fbb27248f17217dee0be568e92f50e7508cacc5c480aa06"
+    },
+    {
+      "kind": "steady",
+      "tag": "c2-wasd-far",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "0396DD54DB3C0351ACFB6ABF41235A43562CEB604596900A98DAD333503A0AB0",
+      "default_route": true,
+      "exit_report_sha256": "bb2f72ae5efdcf68f89690b164a1d0eeb14d73569d2db9e6682919495c4990ce",
+      "log_sha256": "03a28dd7827b2726d7e96e6c7275f476148b2a1d4b7db02fb0db8ab8477d0cfa",
+      "report": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\report.json",
+      "report_sha256": "2ee24d600aa4ce73d18a24f574a8939d8434fa59c5b0fa7b123391ed12d8bf30",
+      "report_fail": 0,
+      "package": "res://resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+      "explicit_override": false,
+      "installed_profile": true,
+      "display": {
+        "budget_frames": 0,
+        "camera_lag_frames": 0,
+        "composite_lag_frames": 0,
+        "first_visible_frame": 0,
+        "frames": 2235,
+        "hidden_frames": 0,
+        "input_events": 0,
+        "legacy_raster_visible_under_hlod_frames": 0,
+        "missing_frames": 0,
+        "motion_summary_frames": 0,
+        "performance_sample": false,
+        "raster_high_zoom_strategic_episodes": [],
+        "raster_high_zoom_strategic_frames": 0,
+        "raster_peak_fading_visible_tiles": 0,
+        "raster_peak_missing_visible_tiles": 0,
+        "raster_same_lod_fade_frames": 0,
+        "raster_visible_tile_missing_frames": 0,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0
+      },
+      "moving_frames": 2111,
+      "catalogs": [
+        4
+      ],
+      "space_returns": 0,
+      "wheel_events": 0,
+      "camera_wait_ms": 0,
+      "captures": [
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0000_screen.png",
+          "sha256": "b71c8deeb7a901d7503745660b38c2df256ffb7921fb59b607d26c74e43be910"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0001_screen.png",
+          "sha256": "93b674d3aee0118a9eea144b246344606dd1053e4cee3f2b57bc9b487435f12c"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0075_screen.png",
+          "sha256": "f23d967e046ae698bed3954e6259aa06212e918a22d89dc6817f666d80be5297"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0076_screen.png",
+          "sha256": "48b31e5c945eb191d4dcae277a89953c97b38350c74c4ab6e7d608379f86d25e"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0077_screen.png",
+          "sha256": "7eca2f9891ebec54c53e74e2bd5a5ee63a393f9cabdc9f99d2c8e2ba8b899053"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0078_screen.png",
+          "sha256": "3ff6e3eb9d68194267d339f314d76732c826f17d6fd6ba38d6958162e202f8f5"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0079_screen.png",
+          "sha256": "5a0f44cb5d8d7b2ec37fe7c8cea7d7b818506a2ea22df7fe89705762b9a07112"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0080_screen.png",
+          "sha256": "4b3dc2eec18a590c8e4175f7a09a78c68457f075bbab84b5d674358fedc148d1"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0384_screen.png",
+          "sha256": "f9317a7815c419ea53aaafe9e01677391cc0444734fe07b604d4f5bf0b262947"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_0739_screen.png",
+          "sha256": "4737d2a8d74b1f0dd622373289e144aa8e6c700eabe1233e89f18dbc663bb26c"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_1189_screen.png",
+          "sha256": "c2b78f93858eff561a2a575f5d2d84a2a6c5c2309c2d6c6512b3bdbfef7a6dd4"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_1497_screen.png",
+          "sha256": "407d3552feb6b1b030a2a3033ac405f1934fe812a6effea489d166f4ecca82e7"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_1816_screen.png",
+          "sha256": "263b90e0716c84931a10cdf0409096a29d9141a4a51ed61a3acaca561a2bb313"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-far\\frame_2098_screen.png",
+          "sha256": "faa04934746714ba787da5843748d6464d9cf6a1e9d0f61f663be9309c244eca"
+        }
+      ]
+    },
+    {
+      "kind": "return",
+      "tag": "c2-space",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "0396DD54DB3C0351ACFB6ABF41235A43562CEB604596900A98DAD333503A0AB0",
+      "default_route": true,
+      "exit_report_sha256": "5209b795643a44492b45402940c19a440d69e74b6a84c7550795d93d84c68620",
+      "log_sha256": "766985406d381d6961fdf229da0db362a5ad59feea906828cfd179ac074c81be",
+      "report": "tmp\\tokyo-clarity-20261031\\c2-space\\report.json",
+      "report_sha256": "043e11a21a6d6d8e3b970e19c828b23ec7f3c9e18c2e7a9f2e6bec90fabad276",
+      "report_fail": 0,
+      "package": "res://resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+      "explicit_override": false,
+      "installed_profile": true,
+      "display": {
+        "budget_frames": 0,
+        "camera_lag_frames": 0,
+        "composite_lag_frames": 0,
+        "first_visible_frame": 0,
+        "frames": 3389,
+        "hidden_frames": 0,
+        "input_events": 0,
+        "legacy_raster_visible_under_hlod_frames": 0,
+        "missing_frames": 0,
+        "motion_summary_frames": 0,
+        "performance_sample": false,
+        "raster_high_zoom_strategic_episodes": [],
+        "raster_high_zoom_strategic_frames": 0,
+        "raster_peak_fading_visible_tiles": 0,
+        "raster_peak_missing_visible_tiles": 0,
+        "raster_same_lod_fade_frames": 0,
+        "raster_visible_tile_missing_frames": 0,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0
+      },
+      "moving_frames": 1608,
+      "catalogs": [
+        -2,
+        4,
+        5,
+        6
+      ],
+      "space_returns": 15,
+      "wheel_events": 480,
+      "camera_wait_ms": 481,
+      "captures": [
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0000_screen.png",
+          "sha256": "7f72d932dfced65d01c78c7b0c7ef6fa1b46f144da27906c044f701ccf1faf8a"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0001_screen.png",
+          "sha256": "afece09c867edc645a74ab8f326522813fc112343b671a76d38c4ab19e5246f7"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0101_screen.png",
+          "sha256": "8e7d4cbb4f9aab073aa0ff43bdbc454f159531a89627579cb8d9b3371ee151fe"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0102_screen.png",
+          "sha256": "d08e4296d7bf8e6dec333934fd77562f45db2dafeacbab6ca2f9d493e5e33b9e"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0103_screen.png",
+          "sha256": "1f8b054f8d37d73784f6ad8f1a45db446669133ba1065bac4c2f05035a6a258a"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0104_screen.png",
+          "sha256": "9c553df854d3ce30ad79e7274120e84bca0fdd3bb05763420329171da041a2d5"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0105_screen.png",
+          "sha256": "48068d2b0835f47d2bd8ca6a4ed85f18cb5aee2e25b3694f65d49656223c4acf"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0106_screen.png",
+          "sha256": "efd6e5949663799ab1cd7f8b5560a60905049ecce95cc6ca31446dead1e29761"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0239_screen.png",
+          "sha256": "dacf75bd12c6b60a5034522bab318823f6a5030e96a526c7c7bcee74351b476d"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_0604_screen.png",
+          "sha256": "aff67f17d65c01a6dc7ccafb31c508ee60127d8de812e4a045eb1c9e6246f19a"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_1011_screen.png",
+          "sha256": "7579223b2160eef6bf939d02645983078dc43115d2a53dcb6f7fbe1c3a410dfc"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_1316_screen.png",
+          "sha256": "2d58d8fea1a14592311f842099a163d8c019fbe163b44a34eef745cf29d30432"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_1538_screen.png",
+          "sha256": "b5e43d400a487c7bf97090bbc2c539be58cc6e8d0156c7332238db5d551de14e"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_1783_screen.png",
+          "sha256": "186f40cc5c732e348ff9018d90c4d501b5c4479c6ba3f8e230fcb34f153bf99d"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_2060_screen.png",
+          "sha256": "5f2a66bfaf95b1ed2b19d00fe4b3ab423b41efe1bd55508967acdee5fea167a6"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_2282_screen.png",
+          "sha256": "e0185e6798ee79b1934ec3939e7ee898320a888980c1ba209664c931ddcbfd1c"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_2559_screen.png",
+          "sha256": "62d93003b520b7af98cb12e60a99c0fc5c2df4fb7fd6680d4df105bfc5403d40"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_2823_screen.png",
+          "sha256": "afc89384e06580f14e1036c170592d8799d995aefba6799fba70c28332091ae6"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_3062_screen.png",
+          "sha256": "136580162279900264be184593f6815345c2ae6e88a3210d6a93a56addc04a76"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-space\\frame_3302_screen.png",
+          "sha256": "bf6baec5008e965f82683dcc01369e3cffa0c4b4bbe3f15a3cc846f467c09548"
+        }
+      ]
+    },
+    {
+      "kind": "steady",
+      "tag": "c2-wasd-near",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "0396DD54DB3C0351ACFB6ABF41235A43562CEB604596900A98DAD333503A0AB0",
+      "default_route": true,
+      "exit_report_sha256": "97f328640dbe4486bd8377f7b1e419ef0c7101106c70c262eb9799a95892fae5",
+      "log_sha256": "eb920986ac7406a3b56a0a4983d2d339f12715795cd0b88c5339fc824c7a7e8f",
+      "report": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\report.json",
+      "report_sha256": "5c5330041f68efa3b74a151f84f70c14e59491be8b02a98c15527feacf096c70",
+      "report_fail": 0,
+      "package": "res://resources/maps/tokyo_playable/m20_f5_candidate_20261026/package.json",
+      "explicit_override": false,
+      "installed_profile": true,
+      "display": {
+        "budget_frames": 0,
+        "camera_lag_frames": 0,
+        "composite_lag_frames": 0,
+        "first_visible_frame": 0,
+        "frames": 2005,
+        "hidden_frames": 0,
+        "input_events": 0,
+        "legacy_raster_visible_under_hlod_frames": 0,
+        "missing_frames": 0,
+        "motion_summary_frames": 0,
+        "performance_sample": false,
+        "raster_high_zoom_strategic_episodes": [],
+        "raster_high_zoom_strategic_frames": 0,
+        "raster_peak_fading_visible_tiles": 0,
+        "raster_peak_missing_visible_tiles": 0,
+        "raster_same_lod_fade_frames": 0,
+        "raster_visible_tile_missing_frames": 0,
+        "uncovered_frames": 0,
+        "unqualified_frames": 0
+      },
+      "moving_frames": 1870,
+      "catalogs": [
+        -2
+      ],
+      "space_returns": 0,
+      "wheel_events": 0,
+      "camera_wait_ms": 0,
+      "captures": [
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0000_screen.png",
+          "sha256": "cdec8cdd4a03bba0c61313ebe349e27d6668e412c08b9362a9e9f80d3ef42b93"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0001_screen.png",
+          "sha256": "26abbd0fc02b382c62c42e4c7f70c534ef4b7b2404c85abf4322698d5df618a0"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0096_screen.png",
+          "sha256": "5fdf83259e43c1049431605b1b1155f86538c9db51116e52e21b9af0bef7b9b0"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0097_screen.png",
+          "sha256": "ee1e1b8e8ef0c42c3c63a8b225280008589200ebc43507473680cf86e168835b"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0098_screen.png",
+          "sha256": "8def87125bf9ee4dfea62b93114b60cb556d5b394fc4966959ea188f4f693f3e"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0099_screen.png",
+          "sha256": "46851206890bbe8ab7afa9ac50fc328281499634288eb7cf50dab393cf14512b"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0100_screen.png",
+          "sha256": "44d16a17ee40f8bb88573042e9c6972610a97c914aca3f958f3b7d361eefcb6b"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0101_screen.png",
+          "sha256": "7d8686dc10ef60a6f0af280fab61d5ab9873a887fb54ed69ae373732ce958485"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0348_screen.png",
+          "sha256": "fd5b769b03b96d045783594553c366a2852a9ac8291adc2de5c6b6c365fda2c7"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_0654_screen.png",
+          "sha256": "9cadf91fa71fc5bdd76d66edea2fd9e48217731e06df7fb0d20424498ce160e5"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_1045_screen.png",
+          "sha256": "41d2ec7876ebc63d3fda9970d2f149aaafc8e9abc5d9dba61e468d892ecae7ee"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_1332_screen.png",
+          "sha256": "9d40a199023c9b3b40c5417d3bb9775b1c87f53283a285cd037bf59079cbd4ac"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_1596_screen.png",
+          "sha256": "e3876f8c4c789461f3553e93935379636dcfa859fa82e50c94a774f3591b221f"
+        },
+        {
+          "path": "tmp\\tokyo-clarity-20261031\\c2-wasd-near\\frame_1872_screen.png",
+          "sha256": "0b62b06707baa55ffe7419cc9aa1ae26e86766de8fd60250e34c76c8938fa7d4"
+        }
+      ]
+    },
+    {
+      "kind": "all",
+      "tag": "c2-all",
+      "exit_code": 0,
+      "audit_complete": true,
+      "source_check_exit": 0,
+      "source_sha": "0396DD54DB3C0351ACFB6ABF41235A43562CEB604596900A98DAD333503A0AB0",
+      "default_route": true,
+      "exit_report_sha256": "114a4e78d03096eecee411588213239e1bd0a707d7584b254e5c1f9f5c70e6cb",
+      "log_sha256": "f9d1863deef9795f44a3501768787de8eb749e615516b23aab4b868119f0675f"
+    }
+  ]
+}

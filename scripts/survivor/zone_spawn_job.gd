@@ -8,6 +8,8 @@ extends RefCounted
 ## 驻守敌机从地图边缘入场，分帧不改变画面；全局随机数仍按原代码的先后顺序抽取，
 ## 驻守预算、中队规模、阵型偏移、航点与 AI 配置与一次性生成完全同一套逻辑。
 
+const MAX_DEFENDER_ELEMENTS := 12
+
 enum Phase { DEFENDERS, TIER3, ATMOSPHERE, DONE }
 enum DefenderStage { SETUP, SELECT, MEMBER, COMMIT }
 
@@ -35,6 +37,7 @@ var _d_garrison_r := 0.0
 var _d_etype := 0
 var _d_cost := 0
 var _d_squad_size := 0
+var _d_element := 2  ## 0 为任务长机，1 预留哨兵
 var _d_member := 0
 var _d_leader_pos := Vector2.ZERO
 var _d_heading_deg := 0.0
@@ -139,7 +142,7 @@ func _step_defenders() -> int:
 			_d_garrison_r = maxf(ZoneMission.GARRISON_ORBIT_RADIUS,
 				float(zone["radius"]) * ZoneMission.GARRISON_ORBIT_RADIUS_FRAC)
 			_d_units = []
-			_d_guard = 12
+			_d_guard = MAX_DEFENDER_ELEMENTS
 			_d_stage = DefenderStage.SELECT
 			return spawned
 		DefenderStage.SELECT:
@@ -170,15 +173,16 @@ func _select_squad() -> void:
 			if room <= 0:
 				continue
 			_d_squad_size = mini(_d_squad_size, room)
-		_d_leader_pos = mission._zone_air_spawn_origin(_d_center)
-		_d_heading_deg = ZoneMission._zone_air_heading_deg(_d_leader_pos, _d_center)
+		_d_leader_pos = mission._planned_flight_position(zone_id, _d_center, _d_garrison_r, _d_element)
+		_d_element += 1
+		_d_heading_deg = ZoneMission._zone_air_heading_deg(_d_leader_pos, _d_center, _d_garrison_r)
 		_d_heading_rad = deg_to_rad(_d_heading_deg)
 		_d_wp = PackedVector2Array()
 		var n_wp := 4
 		for k in range(n_wp):
 			var wa := float(k) / float(n_wp) * TAU
 			_d_wp.append(_d_center + Vector2(cos(wa), sin(wa)) * _d_garrison_r)
-		_d_start_wp_idx = ZoneMission._zone_patrol_entry_index(_d_leader_pos, _d_center, n_wp)
+		_d_start_wp_idx = ZoneMission._zone_patrol_entry_index(_d_leader_pos, _d_center, n_wp, _d_garrison_r)
 		_d_squad = SquadFactory.create()
 		_d_squad.formation = Squad.random_formation()
 		_d_member = 0

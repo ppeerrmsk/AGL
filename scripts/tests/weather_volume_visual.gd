@@ -24,12 +24,12 @@ func _run() -> void:
 		var weather_owner: Variant = source.get_meta(&"weather_volume_owner").get_ref()
 		if weather_owner.warm_results.size() != 3:
 			push_error("Weather material warmup did not finish")
-			tree.quit(1)
+			AudioManager.request_quit(1)
 			return
 		for result: Dictionary in weather_owner.warm_results.values():
 			if not result.get("rendered",false):
 				push_error("Weather material warmup did not render: " + str(result))
-				tree.quit(1)
+				AudioManager.request_quit(1)
 				return
 		print("Weather material warmup: ",weather_owner.warm_results)
 		if OS.get_environment("AGL_WEATHER_DENSITY") == "1":
@@ -95,7 +95,7 @@ func _run() -> void:
 			var result := get_viewport().get_texture().get_image().save_png(path)
 			print("WeatherVolume capture ",path," result=",result," cloud_density=",density)
 			if result != OK:
-				tree.quit(1)
+				AudioManager.request_quit(1)
 				return
 		tree.paused = true
 		await tree.process_frame
@@ -103,7 +103,7 @@ func _run() -> void:
 		await tree.create_timer(0.2,true,false,true).timeout
 		if source._time != before:
 			push_error("Weather clock moved while paused")
-			tree.quit(1)
+			AudioManager.request_quit(1)
 			return
 		tree.paused = false
 		tree.current_scene = null
@@ -111,4 +111,4 @@ func _run() -> void:
 		await tree.process_frame
 		await tree.process_frame
 	print("Weather density comparison: PASS" if OS.get_environment("AGL_WEATHER_DENSITY") == "1" else ("Weather hologram comparison: PASS" if OS.get_environment("AGL_WEATHER_HOLO") == "1" else ("Weather shape comparison: PASS" if OS.get_environment("AGL_WEATHER_COMPARE") == "1" else "WeatherVolume Visual and pause: PASS")))
-	tree.quit(0)
+	AudioManager.request_quit(0)

@@ -1,0 +1,134 @@
+{
+  "date": "2026-11-05",
+  "engine": "4.7.2-stable steam",
+  "baseline": "87848001e3781b6bfc79ef2e8d50ea616d10faf1",
+  "functional": {
+    "synchronous_groups": 105,
+    "failed_groups": 0,
+    "lifecycle_pass": 100,
+    "lifecycle_fail": 0,
+    "default_timeout_exit": 124,
+    "extended_timeout_seconds": 900,
+    "extended_exit": 0
+  },
+  "logs": [
+    {
+      "name": "all-300.log",
+      "exit_code": 124,
+      "sha256": "4a73cbb9cf60608cdfdc64ad2183948d2d6fadd9244e0b2b376ce37469d8c80e"
+    },
+    {
+      "name": "all-900.log",
+      "exit_code": 0,
+      "sha256": "9967ba5eb8e339f39652bb2ff7452d9995a2831cae33e15d4d6501f381c06a24"
+    },
+    {
+      "name": "bomber.log",
+      "exit_code": 0,
+      "sha256": "0fdab0058802e8597e6012ef6f319c2a439907aaead1c55be76ae9c7aae72b05"
+    },
+    {
+      "name": "c1.log",
+      "exit_code": 0,
+      "sha256": "1c4714fe9eff722267d3056ba34d1f1348d476e07378c87ed6fb0ff0f7c3deff"
+    },
+    {
+      "name": "c2.log",
+      "exit_code": 0,
+      "sha256": "95a977fb4130673307a4e05fa893fe6b089b072aa04d0112576a6ceed05203ec"
+    },
+    {
+      "name": "invasion_algorithm.log",
+      "exit_code": 0,
+      "sha256": "be009baad944f3f102c966f49d55fda291d13a9e1cf374f691f48c43ec0a2451"
+    },
+    {
+      "name": "naval_formation.log",
+      "exit_code": 0,
+      "sha256": "4bc529b2e68d88348338e75fe2fead66865c9bbc533e72f6ad3a83eb96b396b0"
+    },
+    {
+      "name": "naval_zone_water.log",
+      "exit_code": 0,
+      "sha256": "7c0382cb4918202e413082b3fde840566dcf9405f99b9ae7a2c94aeb722193d1"
+    },
+    {
+      "name": "offscreen_world.log",
+      "exit_code": 0,
+      "sha256": "4ab4a570d3a16db11c32e6b7cd5a40d89c5ced20f7d0829f91097594bb3c6279"
+    },
+    {
+      "name": "volume_world.log",
+      "exit_code": 0,
+      "sha256": "484288ab32c4e182cf98ab923dad822cca08c5f2bde238860764aa4ccf1fd2eb"
+    },
+    {
+      "name": "zone_air_support.log",
+      "exit_code": 0,
+      "sha256": "9330eb63fd17fea2b2e81fc176a34624b89b4a284d9b386cba689329774024d9"
+    }
+  ],
+  "visual": [
+    {
+      "scenario": "battlefield_atmosphere_stress_36",
+      "report": "bench/results/battlefield_atmosphere_stress_36_20261105_115704.txt",
+      "sha256": "cd05793f6e0d747085e41d76fefd4fa0bbf14a540978a41fb78a260b7e323a3c",
+      "render": "render_frames=3148 avg_fps=116.61 p1_fps=60.12 worst_frame_fps=59.00 frames_below_60=26",
+      "wall_clock": {
+        "avg_fps": 116.677881510812,
+        "below60": 26,
+        "complete": true,
+        "low01_fps": 47.9351916209285,
+        "low1_fps": 56.034769574521,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 21.902,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 8.839,
+        "p95_ms": 13.435,
+        "p999_ms": 20.055,
+        "p99_ms": 15.946,
+        "passed": false,
+        "samples": 3147,
+        "slow_records": [],
+        "trace": false
+      },
+      "strict_60_passed": false,
+      "camera": "camera_patrol=on segments=8/8 period_s=18.0 zoom=0.263..0.446 x=-440..440 y=-1600..1600 max_rotation_deg=14.0",
+      "workload": "atmosphere_target=36 live_members=36 span_km=8.0 shells=5"
+    },
+    {
+      "scenario": "battlefield_atmosphere_stress_48_24km",
+      "report": "bench/results/battlefield_atmosphere_stress_48_24km_20261105_115745.txt",
+      "sha256": "1b1843d2c05ca71a3e8b6b3412ff4b7b5dd5e648d8911b3e5f4ca518f2af220d",
+      "render": "render_frames=3092 avg_fps=114.51 p1_fps=66.17 worst_frame_fps=59.81 frames_below_60=6",
+      "wall_clock": {
+        "avg_fps": 114.536463225921,
+        "below60": 30,
+        "complete": true,
+        "low01_fps": 50.1284541637947,
+        "low1_fps": 55.2124074746913,
+        "low_method": "reciprocal_mean_slowest_ceil_fraction",
+        "max_ms": 20.169,
+        "method": "nearest_rank",
+        "over30": 0,
+        "p50_ms": 8.569,
+        "p95_ms": 14.18,
+        "p999_ms": 19.727,
+        "p99_ms": 16.42,
+        "passed": false,
+        "samples": 3091,
+        "slow_records": [],
+        "trace": false
+      },
+      "strict_60_passed": false,
+      "camera": "camera_patrol=on segments=8/8 period_s=18.0 zoom=0.200..0.340 x=-1320..1320 y=-4800..4800 max_rotation_deg=14.0",
+      "workload": "atmosphere_target=48 live_members=48 span_km=24.0 shells=9"
+    }
+  ],
+  "excluded_independent_packages": [
+    "resources/maps/tokyo_playable/",
+    "resources/maps/tokyo_volume_preview/"
+  ],
+  "manual_full_run_verified": false
+}

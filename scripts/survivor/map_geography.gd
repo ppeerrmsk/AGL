@@ -494,7 +494,7 @@ static func is_on_solid_land(pos: Vector2) -> bool:
 ## 3. 中心周围 clearance_px 的 8 个方向仍须连续为陆地。
 static func is_ground_spawn_safe(pos: Vector2,
 		clearance_px: float = GROUND_SPAWN_CLEARANCE_PX) -> bool:
-	if not _is_ground_surface(pos):
+	if not is_ground_footprint_clear(pos) or not _is_ground_surface(pos):
 		return false
 	if clearance_px <= 0.0:
 		return true
@@ -519,6 +519,22 @@ static func find_ground_spawn_near(anchor: Vector2, max_radius_px: float,
 			if is_ground_spawn_safe(candidate, clearance_px):
 				return candidate
 	return Vector2.INF
+
+## 地面占地与视觉地图同源；UGC 使用该图已注入的建筑，不借东京占地。
+static func is_ground_footprint_clear(pos: Vector2, radius: float = 5.0) -> bool:
+	if not ugc_mode:
+		return preload("res://scripts/survivor/ground_obstacles.gd").clear_at(pos, radius)
+	for entry: Dictionary in BuildingRenderer._cache_entries:
+		var box: Rect2 = entry["bbox"]
+		if not box.grow(radius).has_point(pos):
+			continue
+		var poly: PackedVector2Array = entry["footprint"]
+		if Geometry2D.is_point_in_polygon(pos, poly):
+			return false
+		for i in poly.size():
+			if Geometry2D.get_closest_point_to_segment(pos, poly[i], poly[(i + 1) % poly.size()]).distance_to(pos) <= radius:
+				return false
+	return true
 
 static func _is_ground_surface(pos: Vector2) -> bool:
 	if ugc_mode:

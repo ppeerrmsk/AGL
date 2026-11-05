@@ -177,7 +177,7 @@ var ok: bool = Presentation.play_cinematic("my_cinematic", {
     "owner": self,                    # 必填：GameEvent（无 owner 导演直接拒绝）
     "actors": members,                # 必填：Array[Aircraft]，actors[0] = 长机（镜头/交汇的基准）
     "anchor": anchor,                 # 集结点（cut_to 无 follow 时的定点）
-    "cp": anchor + inbound * 250.0,   # 交汇点（converge / scatter 的圆心）
+    "cp": anchor - inbound * 250.0,   # 沿实际航向 -inbound 前方的交汇点（converge / scatter 的圆心）
     "inbound": inbound,               # 进场方向 = (anchor - player).normalized()，散开扇面的中轴
     "extra_layers": [地图, hud, ...], # stage 要一起压暗的层（CanvasLayer 自动走 visible）
     "callsign_prefix": "WRAITH",      # radio 说话人前缀

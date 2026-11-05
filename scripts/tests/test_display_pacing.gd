@@ -74,6 +74,21 @@ func run() -> void:
 	var cam_ctrl := CameraController.new()
 	host.add_child(cam_ctrl)
 	cam_ctrl.setup(camera)
+	_check_wheel_reversal(cam_ctrl)
+	cam_ctrl.setup(camera)
+	# 输入突发的目标必须保留；大帧、反向以及慢滚轮都不得越界或跳过整段倍率。
+	cam_ctrl.handle_zoom_input(pow(1.1,32))
+	_check("滚轮突发保留完整目标", is_equal_approx(cam_ctrl.target_zoom,CameraController.ZOOM_MAX))
+	var previous_zoom := cam_ctrl._base_zoom
+	cam_ctrl.update_zoom(0.25)
+	_check("长帧缩放保持正值且有界", cam_ctrl._base_zoom>previous_zoom and cam_ctrl._base_zoom<=previous_zoom*exp(CameraController.ZOOM_LOG_SPEED/30.0)+0.0001)
+	cam_ctrl.handle_zoom_input(pow(1.0/1.1,80))
+	previous_zoom=cam_ctrl._base_zoom
+	cam_ctrl.update_zoom(0.5)
+	_check("反向长帧不越过缩远目标", cam_ctrl._base_zoom<previous_zoom and cam_ctrl._base_zoom>=CameraController.ZOOM_MIN)
+	for frame in 240: cam_ctrl.update_zoom(1.0/60.0)
+	_check("突发最终抵达目标而非丢弃输入", is_equal_approx(cam_ctrl._base_zoom,CameraController.ZOOM_MIN))
+	cam_ctrl.setup(camera)
 	cam_ctrl.set_follow_target(ac)
 	camera.global_position = Vector2(-9000.0, 0.0)
 	cam_ctrl._update_follow(1.0)
@@ -81,6 +96,7 @@ func run() -> void:
 		camera.global_position.is_equal_approx(DisplayPacing.display_origin(ac)))
 	_check("Camera2D 不进插值白名单（_process 驱动）", not camera.is_physics_interpolated())
 	_check_viewport_subtree(host)
+	_check_return_camera(host)
 
 	# 过期 prev（本 tick 未跑物理）与插值关闭都回退到物理位置。
 	ac.interp_prev_tick = Engine.get_physics_frames() - 1
@@ -131,8 +147,69 @@ func run() -> void:
 	print("──────── 结果：%d 通过 / %d 失败 ────────\n" % [_pass, _fail])
 
 
+## 走正式鼠标入口，避免测试自带倒数步长而漏掉实际滚轮的倍率漂移。
+func _check_wheel_reversal(controller: CameraController) -> void:
+	for path: String in ["res://scripts/survivor/survivor_mode.gd", "res://scripts/main.gd"]:
+		var scene: Node = load(path).new()
+		scene.set("_camera_ctrl",controller)
+		var up := InputEventMouseButton.new()
+		up.button_index=MOUSE_BUTTON_WHEEL_UP;up.pressed=true
+		var down := InputEventMouseButton.new()
+		down.button_index=MOUSE_BUTTON_WHEEL_DOWN;down.pressed=true
+		var label := path.get_file()
+		var shown := controller.camera.zoom
+		controller.target_zoom=1.2
+		scene.call("_handle_mouse_button",up)
+		_check(label+" 放大一格仍为原 10% 步长",is_equal_approx(controller.target_zoom,1.32))
+		var released: InputEventMouseButton=up.duplicate()
+		released.pressed=false
+		scene.call("_handle_mouse_button",released)
+		_check(label+" 松开滚轮不重复缩放",is_equal_approx(controller.target_zoom,1.32))
+		scene.call("_handle_mouse_button",down)
+		_check(label+" 放大再缩小回到原倍率",is_equal_approx(controller.target_zoom,1.2))
+		controller.target_zoom=1.2
+		for cycle in 50:
+			scene.call("_handle_mouse_button",down)
+			scene.call("_handle_mouse_button",up)
+		_check(label+" 反向五十轮不漂移",is_equal_approx(controller.target_zoom,1.2))
+		_check(label+" 输入只改目标不瞬跳镜头",controller.camera.zoom.is_equal_approx(shown))
+		controller.target_zoom=CameraController.ZOOM_MAX
+		scene.call("_handle_mouse_button",up)
+		var upper_ok := is_equal_approx(controller.target_zoom,CameraController.ZOOM_MAX)
+		controller.target_zoom=CameraController.ZOOM_MIN
+		scene.call("_handle_mouse_button",down)
+		_check(label+" 原有倍率上下限保持",upper_ok and is_equal_approx(controller.target_zoom,CameraController.ZOOM_MIN))
+		scene.free()
+
+
 ## SubViewport 子树（正式三维飞机合成层、地图瓦片可见性等）同样必须保持非插值：
 ## 否则 Camera2D 被引擎改走物理插值路径，force_update_scroll 不再立即刷新画布变换。
+func _check_return_camera(host: Node) -> void:
+	var camera := Camera2D.new();host.add_child(camera)
+	var controller := CameraController.new();host.add_child(controller);controller.setup(camera)
+	var target := Node2D.new();host.add_child(target)
+	target.global_position=Vector2(5000,4000)
+	controller.set_follow_target(target);controller.distance_return_enabled=true
+	controller._base_zoom=5.0;controller.target_zoom=5.0;camera.zoom=Vector2.ONE*5.0
+	camera.global_position=Vector2(-10000,-9000)
+	controller._map_pending_pan=Vector2(300,200);controller._map_pending_wasd=Vector2(300,200)
+	controller.snap_to_follow()
+	_check("远距回中撤销旧平移积压",controller._return_jump_pending and controller._map_pending_pan==Vector2.ZERO and controller._map_pending_wasd==Vector2.ZERO)
+	controller.update(1.0/120.0)
+	_check("近景远距空格下一显示更新到玩家且倍率不变",camera.global_position.distance_to(target.global_position)<0.01 and camera.zoom.x==5.0 and controller.direct_return_count==1 and not controller._return_jump_pending)
+	camera.global_position=target.global_position-Vector2(20,0)
+	controller.snap_to_follow();controller.update(1.0/120.0)
+	_check("短距离仍平滑靠近而非瞬切",camera.global_position.x>target.global_position.x-20.0 and camera.global_position.x<target.global_position.x and controller.direct_return_count==1)
+	controller.distance_return_enabled=false;camera.global_position=Vector2(-10000,-9000)
+	controller.snap_to_follow();controller.update(1.0/120.0)
+	_check("关闭候选保持原跟随回程",camera.global_position.distance_to(target.global_position)>1000.0)
+	_check("屏幕远近判定支持倍率且拒绝无效尺寸",CameraController.should_snap_return(Vector2(500,0),5.0,Vector2(1920,1080)) and not CameraController.should_snap_return(Vector2(500,0),0.2,Vector2(1920,1080)) and not CameraController.should_snap_return(Vector2.INF,5.0,Vector2.ZERO))
+	target.free()
+	controller.snap_to_follow();controller.update(1.0/120.0)
+	_check("目标释放后回中不保留旧目标跳转",not controller._return_jump_pending)
+	controller.free();camera.free()
+
+
 func _check_viewport_subtree(host: Node) -> void:
 	var viewport := SubViewport.new()
 	viewport.size = Vector2i(640, 360)

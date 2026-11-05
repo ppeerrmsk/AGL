@@ -46,8 +46,10 @@ static func _set_override(unit: GroundUnit, active: bool) -> void:
 		return
 	if active:
 		unit.set_meta(BODY_META, true)
+		unit.set_meta(&"volume_ground_scale", scale_for(unit))
 	else:
 		unit.remove_meta(BODY_META)
+		unit.remove_meta(&"volume_ground_scale")
 	unit.queue_redraw()
 
 
@@ -71,19 +73,20 @@ func sync(probe: Node3D, view: Rect2, canvas: Transform2D, output_scale: float) 
 			continue
 		if unit is ArmoredTrainSegment and not unit.is_destroyed:
 			_markers(unit, canvas * unit.global_transform)
-		var size := 620.0 if unit is LandCarrierUnit else (236.0 if unit is ArmoredTrainSegment else 24.0)
+		var size := 620.0 if unit is LandCarrierUnit else (236.0 if unit is ArmoredTrainSegment else 40.0)
 		if unit is Tier3SuperCannonPart:
 			size = 158.0
 		elif unit is StrategicTarget:
 			size = 68.0 if unit.target_kind == StrategicTarget.TargetKind.WAREHOUSE else 48.0
-		var px := size * maxf(canvas.x.length(), canvas.y.length()) * output_scale
+		var vehicle_scale := scale_for(unit)
+		var px := size * vehicle_scale * maxf(canvas.x.length(), canvas.y.length()) * output_scale
 		var id := unit.get_instance_id()
 		var detailed := detail_mode_for(bool(_detail_states.get(id, false)), px)
 		_detail_states[id] = detailed
 		var color := body_color_for(unit)
 		var alpha := clampf(unit._destroy_timer / 2.0, 0.0, 1.0) if unit.is_destroyed else 1.0
 		# 脱轨分段以真实 rotation 继续旋出；不重新套回 heading。
-		var body := Transform3D(Basis(Vector3.UP, -unit.global_rotation),
+		var body := Transform3D(Basis(Vector3.UP, -unit.global_rotation).scaled(Vector3.ONE * vehicle_scale),
 			Vector3(unit.global_position.x, 0, unit.global_position.y))
 		var owner: Variant = unit.get("owner_tank") if unit.has_meta(&"tier3_child_mount") else null
 		var attached := typeof(owner) == TYPE_OBJECT and is_instance_valid(owner) and owner is GroundUnit
@@ -113,6 +116,15 @@ func _emit(probe: Node3D, key: String, transform: Transform3D, color: Color, alp
 
 static func detail_mode_for(current: bool, projected_span_px: float) -> bool:
 	return projected_span_px >= (20.0 if current else 26.0)
+
+
+## 普通车辆按 0.5px/m；巨型任务单位保留各自明确的尺度契约。
+static func scale_for(unit: GroundUnit) -> float:
+	if unit.has_meta(&"tier3_child_mount"):
+		return 1.0
+	if unit is AtmosphereArtilleryUnit or unit is AAGunUnit or unit is SAMUnit or unit is RadarStation:
+		return 0.125
+	return 1.0
 
 
 static func body_color_for(unit: GroundUnit) -> Color:
@@ -185,6 +197,6 @@ func _parts(probe: Node3D, unit: GroundUnit, key: String, body: Transform3D,
 	if part.is_empty():
 		return
 	var point := body * Vector3(0, height, local_z)
-	var transform := Transform3D(Basis(Vector3.UP, -heading).scaled(Vector3.ONE * part_scale), point)
+	var transform := Transform3D(Basis(Vector3.UP, -heading).scaled(Vector3.ONE * part_scale * scale_for(unit)), point)
 	var part_color := color.lightened(.32) if unit.is_firing and not unit.is_destroyed else color
 	_emit(probe, part, transform, part_color, alpha, detailed)

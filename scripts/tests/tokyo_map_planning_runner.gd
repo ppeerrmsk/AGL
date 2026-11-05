@@ -5,4 +5,4 @@ func _ready() -> void:
 
 func _run() -> void:
 	var failures := await preload("res://scripts/tests/tokyo_map_planning_case.gd").run(self)
-	get_tree().quit(0 if failures==0 else 1)
+	AudioManager.request_quit(0 if failures==0 else 1)

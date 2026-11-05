@@ -205,7 +205,7 @@ Black Star 不占 `EnemyType`，也不进入常规 Token 池；四代飞机均�
 5. **`survivor_data.gd:1554` 起加解锁/概率常量**（`<NAME>_UNLOCK_LEVEL` / `_CHANCE_PER_LEVEL` / `_CHANCE_MAX`）
 6. **`survivor_data.gd:3495` `TOKEN_COST` 和 `survivor_data.gd:3602` `TOKEN_INSTANCE_CAP` 表补新枚举值**
 7. **`survivor_spawner.gd:477` `_pick_enemy_type` 按威胁等级插入概率判定分支**
-8. **`survivor_spawner.gd:2785` `_create_enemy` 的各 match 全部补新 case**：
+8. **`survivor_spawner.gd:2791` `_create_enemy` 的各 match 全部补新 case**：
    - `match etype` 选基础参数（`:1577`）
    - `enemy_scale_for_level` 适用判定（`:1646` 起）
    - 热诱弹配置纪律 match（`:1689`）—— 越低级配置值越高，实际不投概率由 flare-evasion-coupling 统一缩放

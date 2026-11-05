@@ -58,20 +58,15 @@ const PRED_DISPLAY_STRIDE: int = 4
 var _predicted_path_world: PackedVector2Array = PackedVector2Array()        ## 最新抽样显示 cache
 var _predicted_path_healths: PackedFloat32Array = PackedFloat32Array()
 ## 平滑视图：每帧 lerp 向 _predicted_path_world，实际渲染用这个
-## 修复"6 秒预测推进时高速瞬移"的视觉问题——cache 在 20Hz 离散更新，
-## 平滑视图填补 50ms 间隔让线条连续追平
+## 固定弧长重采样并按渲染帧指数平滑；起点始终取显示态，绘制不修改缓存
 var _predicted_path_smooth_world: PackedVector2Array = PackedVector2Array()
 var _predicted_path_smooth_healths: PackedFloat32Array = PackedFloat32Array()
 const PRED_SMOOTH_LERP_RATE: float = 24.0  ## 时常数 ~42ms，差不多 cache 间隔
 var _predicted_path_cache_ms: int = 0
 var _predicted_path_build: AircraftPhysics.PredictionWork
 var _predicted_path_build_target: Vector2 = Vector2.INF
-## 长度平滑保留：处理 arrival_dist 阈值穿越时的边界跳变（极少见）
-var _predicted_path_visible_n_smooth: float = 0.0
-var _predicted_path_last_draw_ms: int = 0
 var _predicted_path_last_target: Vector2 = Vector2.INF
 const PREDICTED_PATH_REFRESH_MS: int = 200
-const PRED_LEN_LERP_RATE: float = 6.0
 const PRED_TARGET_RESET_PX: float = 200.0
 ## 诊断：保存上次 prediction 用于计算两次 refresh 之间形状偏移量
 ## 偏移大说明预测线"跳"得厉害；按阈值打 PRED_JUMP 事件方便在 log 里搜出抽搐瞬间
@@ -1284,8 +1279,8 @@ func _physics_process_impl(delta: float) -> void:
 		# heading/bank/position 60Hz 是必要开销（leader 转向时槽位变化太快）
 		if formation_mode and _formation_leader and is_instance_valid(_formation_leader):
 			AircraftFormation.update_follow(self, delta)
-			if _lod_frame % sim_divisor == 0:
-				var formation_delta := delta * float(sim_divisor) if lod_level >= 2 else delta
+			if dense_already_gated or _lod_frame % sim_divisor == 0:
+				var formation_delta := delta if dense_already_gated else delta * float(sim_divisor)
 				AircraftWeapons.update_formation_opportunity_weapons(self, formation_delta)
 			AircraftFlares.update(self, delta)  # 编队中也要更新/清除 flare 粒子，否则残留不消失
 			return
@@ -1322,10 +1317,12 @@ func _physics_process_impl(delta: float) -> void:
 		AircraftPhysics.apply_movement(self, movement_delta)  # 位移始终 60Hz；其它逻辑用补偿 delta
 		if gunship_mode_active and is_player_squad():
 			AircraftWeapons.update_passive_gunship(self, delta)
-		elif combat_target != null:
+		elif combat_target != null or _gun_reload_active:
 			AircraftWeapons.update_gun(self, lod_delta)
 		if combat_target != null:
 			AircraftWeapons.update_rocket(self, lod_delta)
+		# 装填属于武器生命周期，不依赖交战目标仍然存在。
+		if combat_target != null or _missile_reload_active:
 			AircraftWeapons.update_missile(self, lod_delta)
 		AircraftWeapons.update_torpedo(self, lod_delta)
 		AircraftWeapons.update_loyal_wingman(self, lod_delta)
@@ -1375,11 +1372,13 @@ func _physics_process_impl(delta: float) -> void:
 			_check_ground_crash()
 			AircraftPhysics.update_g_load(self)
 		AircraftPhysics.apply_movement(self, movement_delta)  # 错相跳帧已各自位移；未分频时与 delta 相同
-		if combat_target != null or (gunship_mode_active and is_player_squad()):
+		if combat_target != null or _gun_reload_active or (gunship_mode_active and is_player_squad()):
 			AircraftWeapons.auto_gun_scan(self)
 			AircraftWeapons.update_gun(self, delta)
 		if combat_target != null:
 			AircraftWeapons.update_rocket(self, delta)
+		# 装填属于武器生命周期，不依赖交战目标仍然存在。
+		if combat_target != null or _missile_reload_active:
 			AircraftWeapons.update_missile(self, delta)
 		AircraftWeapons.update_torpedo(self, delta)
 		AircraftWeapons.update_loyal_wingman(self, delta)
@@ -2856,6 +2855,7 @@ func _update_evasion(delta: float) -> void:
 					_head_on_jam_seconds[tid] = 0.0
 					EventLogger.log_event("SKILL_HOOK", _log_name(),
 						"head_on_jam → %s JAM %.1fs" % [tgt_ac._log_name(), HEAD_ON_JAM_DURATION])
+					SkillHooks.on_jam_target_hit(self, tgt_ac)
 					SkillHooks.on_player_jam_landed(self, 1)
 		# 清掉离开雷达锥的累积
 		for tid_check in _head_on_jam_seconds.keys():
@@ -3016,6 +3016,7 @@ func _tick_aura_accumulator(accum_dict: Dictionary,
 			accum_dict[oid] = 0.0
 			debuff_hits.append(u.global_position)
 			if status_id == StatusEffects.JAM:
+				SkillHooks.on_jam_target_hit(self, u)
 				SkillHooks.on_player_jam_landed(self, 1)
 		else:
 			accum_dict[oid] = sec
@@ -3218,12 +3219,16 @@ func apply_status(id: String, duration: float, mode: String = "max") -> void:
 func _sig_f22_reload_all() -> void:
 	if params == null:
 		return
-	if params.gun and ammo < params.gun.max_ammo:
-		ammo = params.gun.max_ammo
+	if params.gun:
+		ammo = maxi(ammo, params.gun.max_ammo)
+		_gun_reload_active = false
 		_gun_reload_timer = 0.0
-	if params.missile and missiles_remaining < params.missile.max_count:
-		missiles_remaining = params.missile.max_count
+		gun_reload_progress = 0.0
+	if params.missile:
+		missiles_remaining = maxi(missiles_remaining, params.missile.max_count)
+		_missile_reload_active = false
 		_missile_reload_timer = 0.0
+		missile_reload_progress = 0.0
 	var rg_state: Variant = equipment_state.get("railgun", null)
 	if rg_state is Dictionary:
 		rg_state["cooldown"] = 0.0
@@ -3708,7 +3713,7 @@ func _draw() -> void:
 
 
 func _draw_impl() -> void:
-	AircraftRenderer.clear_unit_status_panel(self)
+	AircraftRenderer.register_status_subject(self)
 	if not _font:
 		_font = ThemeDB.fallback_font
 	# 传感器幕只跳过本机 CPU 绘制；Snowblind 的 Polygon2D 子网格仍由 GPU 独立绘制。

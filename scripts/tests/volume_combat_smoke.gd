@@ -17,12 +17,12 @@ func run(mode: Node) -> void:
 		await tree.process_frame
 	if tree.paused:
 		_check(false, "arrival hands control back without manual unpause")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	await tree.create_timer(0.25, true, false, true).timeout
 	_check(is_instance_valid(mode), "manual scene survives without bench timeout")
 	if not is_instance_valid(mode):
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	_check(mode._boss_debug_mode and not mode._bench_mode, "real manual Boss Debug, not bench AI")
 	_check(not mode.archive_enabled(), "manual experiment excluded from career")
@@ -78,7 +78,7 @@ func run(mode: Node) -> void:
 	_key(KEY_F8)
 	if not await _wait_for_scene_release(previous):
 		_check(false, "F8 scene transition finishes within six seconds")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	await tree.process_frame
 	mode = tree.current_scene
@@ -95,14 +95,14 @@ func run(mode: Node) -> void:
 	mode._quit_to_main_menu()
 	if not await _wait_for_scene_release(restarted):
 		_check(false, "quit scene transition finishes within six seconds")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	await tree.process_frame
 	_check(restarted.get_ref() == null, "real quit releases experiment and its bindings")
 	_check(tree.current_scene.scene_file_path == "res://scenes/main_menu.tscn" and not tree.paused,
 		"quit returns to unpaused main menu")
 	print("[Volume manual smoke] pass=%d fail=%d; functional input/lifecycle only, NOT a 60 FPS gate" % [_pass, _fail])
-	tree.quit(1 if _fail > 0 else 0)
+	AudioManager.request_quit(1 if _fail > 0 else 0)
 
 
 func _wait_for_scene_release(previous: WeakRef) -> bool:

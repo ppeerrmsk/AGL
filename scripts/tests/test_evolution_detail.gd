@@ -1,12 +1,14 @@
 extends RefCounted
 
+const ModelPreview := preload("res://scripts/survivor/aircraft_model_preview.gd")
+
 ## 无头验收：进化结算站详情卡（spec aircraft-evolution-tree §5，用户反馈 2026-07-20）
 ##
 ## 覆盖：① 全树每个节点都能算出详情数据（档案可解析 / 属性表齐全）
 ##       ② 属性对比语义（越小越好的锁定时间不能被算成"变差"）
 ##       ③ 需求行 = 等级门 + 全部 gates（含已达标项，不只缺口）
 ##       ④ 可进化判定 = 直接出口 且 LV 达标 且 属性门全过
-##       ⑤ 树视图 pip 徽记槽位（spec evolution-attribute-gates §3.3 v9）
+##       ⑤ 悬停不选择、未知机保密、提交锁定后的输入隔离
 ##
 ## 运行：godot --headless --path . -- --bench=evo_detail（或 --bench=all）
 
@@ -24,9 +26,10 @@ func run() -> void:
 	_test_can_evolve()
 	_test_panel_never_drifts_offscreen()
 	_test_airfield_binary_decision()
-	_test_gate_pips()
 	_test_tree_routes_and_current_marker()
 	_test_tree_hides_unreachable_routes()
+	_test_hover_does_not_select()
+	_test_model_previews()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("══════════════════════════════════════════════════\n")
 
@@ -129,7 +132,7 @@ func _test_panel_never_drifts_offscreen() -> void:
 		break
 	for pass_i in [0, 1]:
 		var cur: Dictionary = first if pass_i == 0 else second
-		# 顺带冒烟：show_offer 本身不得抛错（三栏构建 / 详情卡默认摊开当前机）
+		# 顺带冒烟：show_offer 本身不得抛错，详情浮窗默认关闭。
 		var cur_id := StringName(cur.get("id", ""))
 		ui.show_offer(cur, EvolutionSystem.exits_of(cur_id), 26,
 			SurvivorData.signature_upgrade_for_aircraft(cur_id), true, false,
@@ -156,76 +159,39 @@ func _test_panel_never_drifts_offscreen() -> void:
 
 
 func _test_airfield_binary_decision() -> void:
-	print("── F. 机场二选一：专属技能不进抽选且与进化互斥 ──")
+	print("── F. 机场二选一：按全部出口切换整备类型，与僚机互斥 ──")
 	var ui := EvolutionUI.new()
 	ui._ready()
 	var current := EvolutionSystem.node_of(&"f15")
 	var signature := SurvivorData.signature_upgrade_for_aircraft(&"f15")
-	ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 26, signature, true, false,
-		[&"f15"], {&"gladiator": 8, &"knight": 8, &"schemer": 8})
-	_check("许可已购且未装备 → 保留机体按钮可用", not ui._signature_confirm.disabled, "")
-	_check("什么都没选 → 底部按钮灰色且不能继续",
-		ui._done_button.disabled
-		and ui._done_button.text == tr("SETTLEMENT_DECISION_REQUIRED"), "")
-	ui._confirm_signature(signature)
-	_check("主动选择右侧技能后锁死进化按钮与树", ui._decision_committed
-		and ui._evo_confirm.disabled
-		and ui._signature_confirm.disabled and ui._done_button.disabled
-		and not ui._tree.interactive, "")
+	var points := {&"gladiator": 8, &"knight": 8, &"schemer": 8}
+	ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 26, signature, true, false, [], points)
+	_check("有达标出口只显示进化整备与僚机", ui._evolution_ready and ui._repair_confirm == null
+		and ui._evo_confirm != null and not ui._wingman_confirm.disabled, "")
+	ui._confirm_repair()
+	_check("有出口时拒绝直接请求维修专属", not ui._decision_committed, "")
+	ui._confirm_wingman()
+	_check("选择僚机同拍锁树和所有选择", ui._decision_committed and not ui._tree.interactive
+		and ui._evo_confirm.disabled and ui._wingman_confirm.disabled, "")
 	ui.reject_decision()
-	_check("权威拒绝后恢复二选一输入", not ui._decision_committed
-		and not ui._signature_confirm.disabled and ui._tree.interactive
-		and ui._evo_confirm.disabled and ui._done_button.disabled, "")
-
-	ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 26, signature, true, true,
-		[&"f15"], {&"gladiator": 8, &"knight": 8, &"schemer": 8})
-	_check("本局已装备 → 不重复授予且可继续出击",
-		ui._signature_confirm.disabled and not ui._done_button.disabled, "")
-	var t0_current := EvolutionSystem.node_of(&"mig21f13")
+	_check("权威拒绝后恢复输入", not ui._decision_committed and ui._tree.interactive
+		and not ui._wingman_confirm.disabled, "")
+	for state in ["ready", "locked", "equipped"]:
+		ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 1, signature,
+			state != "locked", state == "equipped", [], points)
+		_check("等级不足可完整维修：" + state, not ui._evolution_ready and ui._evo_confirm == null
+			and not ui._repair_confirm.disabled, "")
+	ui.show_offer(current, EvolutionSystem.exits_of(&"f15"), 26, signature, true, false, [], {})
+	_check("等级够但三轴不足改用维修", not ui._evolution_ready and ui._repair_confirm != null, "")
 	var placeholder := SurvivorData.signature_upgrade_for_aircraft(&"mig21f13")
-	ui.show_offer(t0_current, EvolutionSystem.exits_of(&"mig21f13"), 5,
-		placeholder, false, false, [&"mig21f13"],
-		{&"gladiator": 2, &"knight": 0, &"schemer": 0})
-	_check("延期专属技只显示占位：不可确认、不会阻断继续出击",
-		SurvivorData.is_signature_placeholder(placeholder)
-		and ui._signature_confirm.disabled and not ui._done_button.disabled, "")
+	ui.show_offer(EvolutionSystem.node_of(&"mig21f13"), EvolutionSystem.exits_of(&"mig21f13"),
+		1, placeholder, false, false, [], {}, {}, false, false)
+	_check("占位专属不发奖但可维修；未购僚机不可选", not ui._signature_ready
+		and not ui._repair_confirm.disabled and ui._wingman_confirm.disabled, "")
+	ui._confirm_repair()
+	_check("维修提交锁住两个操作", ui._decision_committed and ui._repair_confirm.disabled
+		and ui._wingman_confirm.disabled and not ui._tree.interactive, "")
 	ui.free()
-
-
-# ── G. 树视图 pip 徽记（spec evolution-attribute-gates §3.3 v15）──
-## 槽位算法纯逻辑可无头验：具体轴门=轴色纯色 pip / 或门=一枚分瓣；
-## 实心随 _axis_points 实时判定（_draw 本身依赖渲染，无头不跑）。
-func _test_gate_pips() -> void:
-	print("── F. pip 槽位：具体轴纯色 / 或门 / 填充随点数 ──")
-	var tv := EvolutionTreeView.new()
-	# YF-23：斗2 + 骑3 → 5 枚纯色。
-	var g_yf23: Dictionary = EvolutionSystem.gates_of(EvolutionSystem.node_of(&"yf23"))
-	tv._axis_points = {&"gladiator": 1, &"knight": 1, &"schemer": 0}
-	var slots: Array = tv._pip_slots(g_yf23)
-	_check("yf23 共 5 枚 pip（2斗+3骑）", slots.size() == 5, "got %d" % slots.size())
-	_check("yf23 全是单轴纯色 pip", (slots[0]["colors"] as Array).size() == 1
-		and (slots[4]["colors"] as Array).size() == 1, "")
-	_check("yf23 斗1骑1 → 实心 2 枚", _filled_count(slots) == 2, "got %d" % _filled_count(slots))
-	tv._axis_points = {&"gladiator": 2, &"knight": 3, &"schemer": 0}
-	_check("yf23 斗2骑3 → 5 枚全实心", _filled_count(tv._pip_slots(g_yf23)) == 5, "")
-	# F/A-18E 或门：一枚双色分瓣，任一轴 1 点即实心
-	var g_fa18e: Dictionary = EvolutionSystem.gates_of(EvolutionSystem.node_of(&"fa18e"))
-	tv._axis_points = {}
-	var s18: Array = tv._pip_slots(g_fa18e)
-	_check("fa18e 或门 = 1 枚双色分瓣", s18.size() == 1 and (s18[0]["colors"] as Array).size() == 2, "")
-	_check("fa18e 零点空心", _filled_count(s18) == 0, "")
-	tv._axis_points = {&"knight": 1}
-	_check("fa18e 骑1 → 实心", _filled_count(tv._pip_slots(g_fa18e)) == 1, "")
-	# AX-00：三轴各2 → 6 枚纯色。
-	var g_ax: Dictionary = EvolutionSystem.gates_of(EvolutionSystem.node_of(&"ax00"))
-	tv._axis_points = {&"gladiator": 2, &"knight": 2, &"schemer": 2}
-	var sax: Array = tv._pip_slots(g_ax)
-	_check("ax00 共 6 枚（三轴各2）", sax.size() == 6, "got %d" % sax.size())
-	_check("ax00 全是单轴纯色 pip", (sax[5]["colors"] as Array).size() == 1, "")
-	_check("ax00 2/2/2 → 全实心", _filled_count(sax) == 6, "got %d" % _filled_count(sax))
-	# 无 gates（T1 起手机）：不画
-	_check("无门槛 → 无 pip", tv._pip_slots({}).is_empty(), "")
-	tv.free()
 
 
 # ── G. 树连线与当前机体迁移（用户反馈 2026-08-02）──
@@ -258,7 +224,7 @@ func _test_tree_routes_and_current_marker() -> void:
 	tv._selected = &"f15c"
 	tv.set_current(&"f15c", [&"f15", &"f15c"])
 	_check("进化后当前节点迁到 f15c", tv._current == &"f15c", str(tv._current))
-	_check("进化后候选白框清除", tv._selected == &"", str(tv._selected))
+	_check("进化后候选标记清除", tv._selected == &"", str(tv._selected))
 	_check("进化后出口按新当前机重建", tv._exit_lv.has(&"f22"), str(tv._exit_lv.keys()))
 	tv.free()
 
@@ -291,12 +257,106 @@ func _test_tree_hides_unreachable_routes() -> void:
 	AircraftCodex._loaded = codex_loaded_before
 
 
-func _filled_count(slots: Array) -> int:
-	var n := 0
-	for s in slots:
-		if bool(s["filled"]):
-			n += 1
-	return n
+func _test_hover_does_not_select() -> void:
+	var loaded := AircraftCodex._loaded
+	var discovered := AircraftCodex._discovered.duplicate(true)
+	AircraftCodex._loaded = true
+	AircraftCodex._discovered.clear()
+	var tree := EvolutionTreeView.new()
+	tree.setup(EvolutionSystem.all_nodes(), &"f16", [&"f16"], 26,
+		{&"gladiator": 8, &"knight": 8, &"schemer": 8})
+	var events := {"hover": &"", "selected": 0}
+	tree.node_hovered.connect(func(id: StringName, _rect: Rect2) -> void: events.hover = id)
+	tree.node_selected.connect(func(_id: StringName) -> void: events.selected += 1)
+	var motion := InputEventMouseMotion.new()
+	motion.position = (tree._rects[&"f35"] as Rect2).get_center()
+	tree._gui_input(motion)
+	_check("悬停只通知详情，不改变候选或提交选择", events.hover == &"f35"
+		and events.selected == 0 and tree._selected == &"", "")
+	tree.select_node(&"f35")
+	motion.position = (tree._rects[&"f16"] as Rect2).get_center()
+	tree._gui_input(motion)
+	_check("浏览当前机保留已选后继", tree._selected == &"f35" and events.hover == &"f16", "")
+	motion.position = (tree._rects[&"x44"] as Rect2).get_center()
+	tree._gui_input(motion)
+	_check("未知机体不发出详情信息", events.hover == &"" and tree._selected == &"f35", "")
+	tree.interactive = false
+	motion.position = (tree._rects[&"f35"] as Rect2).get_center()
+	tree._gui_input(motion)
+	_check("提交锁定后不接受悬停", events.hover == &"", "")
+	tree.free()
+	AircraftCodex._loaded = loaded
+	AircraftCodex._discovered = discovered
+
+
+## 同一档案在选机页、树节点和浮窗必须展示相同外形；未知机不创建模型。
+func _test_model_previews() -> void:
+	var preview := ModelPreview.new()
+	var selection := AircraftHologramPreview.new()
+	var missing: Array[String] = []
+	var mismatched: Array[String] = []
+	for nd in EvolutionSystem.all_nodes():
+		var profile := AircraftDB.get_profile(StringName(nd.get("profile", "")))
+		preview.show_profile(profile)
+		selection.show_profile(profile, 0, 1)
+		if not preview.has_model():
+			missing.append(String(nd.get("id", "")))
+		if preview._texture != selection._model._texture \
+				or preview.model_key != selection._model.model_key or not selection.has_model_texture():
+			mismatched.append(String(nd.get("id", "")))
+	_check("全树机型均有真实预览图或已有模型顶视图", missing.is_empty(), str(missing))
+	_check("进化预览与选机页共用相同机型和纹理", mismatched.is_empty(), str(mismatched))
+	preview.show_profile(AircraftDB.get_profile(&"x44"))
+	_check("无 PNG 的 X-44 使用自身模型顶视图", preview.model_key == "x44"
+		and preview._texture == null and not preview._projection.is_empty(), "")
+	preview.show_profile(null)
+	selection.show_locked(0, 1)
+	_check("未知/空档案清空前一架机体外形", not preview.has_model() and preview.model_key.is_empty()
+		and not selection.has_model_texture() and not selection._model.has_model()
+		and not selection._ghost_left.has_model() and not selection._ghost_right.has_model(), "")
+	preview.free()
+	selection.free()
+
+	var loaded := AircraftCodex._loaded
+	var discovered := AircraftCodex._discovered.duplicate(true)
+	AircraftCodex._loaded = true
+	AircraftCodex._discovered.clear()
+	var tree := EvolutionTreeView.new()
+	var points := {&"gladiator": 8, &"knight": 8, &"schemer": 8}
+	var history := [&"mig21f13", &"mig23", &"f16"]
+	tree.setup(EvolutionSystem.all_nodes(), &"f16", history, 26, points)
+	_check("当前机、历史机与可进化出口都有外形", tree._models.has(&"f16")
+		and tree._models.has(&"mig23") and tree._models.has(&"f35")
+		and tree._models[&"f35"].has_model(), "")
+	_check("未知远端节点不创建预览组件", not tree._models.has(&"x44"), "")
+	var card: Rect2 = tree._rects[&"f35"]
+	var model: Control = tree._models[&"f35"]
+	_check("缩略图位于卡片内且不挡鼠标", card.encloses(model.get_rect())
+		and model.mouse_filter == Control.MOUSE_FILTER_IGNORE, "")
+	tree.select_node(&"f35")
+	_check("选中反色同时作用于机体", model.modulate == Color.BLACK, "")
+	AircraftCodex._discovered["x44"] = true
+	tree.setup(EvolutionSystem.all_nodes(), &"f16", history, 1, points)
+	_check("已知但本次门槛不足的飞机仍有外形", not tree.can_evolve(&"f35")
+		and tree._models.has(&"f35") and tree._models[&"f35"].has_model(), "")
+	_check("以前解锁的远端机显示自身模型", tree._models.has(&"x44")
+		and tree._models[&"x44"].model_key == "x44" and tree._models[&"x44"].has_model(), "")
+	AircraftCodex._discovered.clear()
+	tree.setup(EvolutionSystem.all_nodes(), &"f16", history, 26, points)
+	_check("重新打开未知机不会残留上次预览", not tree._models.has(&"x44"), "")
+	tree.free()
+	AircraftCodex._loaded = loaded
+	AircraftCodex._discovered = discovered
+	var panel := D.new()
+	panel.show_node(&"f35", &"f16", 26, points)
+	var detail_model := panel.get_node("AircraftModel") as ModelPreview
+	_check("悬停详情展示对应机体", detail_model != null and detail_model.model_key == "f35"
+		and detail_model.has_model() and detail_model.mouse_filter == Control.MOUSE_FILTER_IGNORE, "")
+	panel.show_node(&"x44", &"f16", 26, points)
+	detail_model = panel.get_node("AircraftModel") as ModelPreview
+	_check("切换浮窗及时替换机体", detail_model != null and detail_model.model_key == "x44"
+		and detail_model.has_model(), "")
+	panel.free()
 
 
 ## 递归找 EvolutionTreeView 的 ScrollContainer 祖先

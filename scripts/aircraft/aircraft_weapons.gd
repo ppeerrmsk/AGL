@@ -71,6 +71,44 @@ static func stable_offaxis_ratio(is_faf: bool, skill: float) -> float:
 		clampf(skill, 0.0, 1.0))
 
 
+## 火控与战术收坡共用同一坡度门，禁止复制阈值。
+static func stable_bank_limit_deg(is_faf: bool, skill: float) -> float:
+	return lerpf(
+		STABLE_MAX_BANK_DEG_FAF_LOOSE if is_faf else STABLE_MAX_BANK_DEG_SARH_LOOSE,
+		STABLE_MAX_BANK_DEG_FAF_TIGHT if is_faf else STABLE_MAX_BANK_DEG_SARH_TIGHT,
+		clampf(skill, 0.0, 1.0))
+
+
+## 几何就绪时建议短暂收坡。只读当前目标，不扫描世界、不采样随机数。
+## 尚未对准返回 -1，保留追击转率；出弹仍经过完整火控门。
+static func prelaunch_bank_limit_deg(ac: Aircraft, target_unit: CombatUnit) -> float:
+	if not ac.params or not ac.params.missile or not is_instance_valid(target_unit):
+		return -1.0
+	if ac.missiles_remaining <= 0 or ac._missile_cooldown > 0.0 \
+			or ac._missile_reload_active or ac.is_cranking() or ac.external_missile_control:
+		return -1.0
+	if ac.status_jam_active or ac.evasion_mode or ac.is_afterburner_mode_active():
+		return -1.0
+	var msl: MissileParams = ac.params.missile
+	var dist_m := ac.global_position.distance_to(target_unit.global_position) / CombatUnit.PIXELS_PER_METER
+	# 与 _missile_engage_pos 的发射前距离带一致。
+	if dist_m <= msl.min_range * 1.5 or dist_m > msl.max_range_rear * 0.7:
+		return -1.0
+	if not AircraftCombatTracking.is_in_missile_envelope(ac, target_unit, msl):
+		return -1.0
+	# jitter 最严格端是确定性目标，不随逐次发射抽样抖动。
+	var skill := clampf(ac.params.combat.missile_skill + ac.params.combat.missile_skill_jitter,
+		0.0, 1.0) if ac.params.combat else 0.0
+	var to_tgt := target_unit.global_position - ac.global_position
+	var off_deg := absf(rad_to_deg(ac._angle_diff(atan2(to_tgt.x, -to_tgt.y), ac.heading)))
+	if off_deg > ac.params.radar_half_angle * stable_offaxis_ratio(msl.fire_and_forget, skill):
+		return -1.0
+	if not bool(_has_lead_intercept_solution(ac, target_unit, msl, skill)[0]):
+		return -1.0
+	# 渐近滚转控制留 2° 余量，避免贴着阈值永远不越过。
+	return stable_bank_limit_deg(msl.fire_and_forget, skill) - 2.0
+
+
 ## 发射窗口质量过滤：所有飞机按自身 combat 档案判定。
 static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit,
 		skill: float) -> bool:
@@ -87,10 +125,7 @@ static func _has_stable_launch_window(ac: Aircraft, target_unit: CombatUnit,
 			return false
 	# 2. bank 检查
 	var bank_deg: float = absf(rad_to_deg(ac.bank_angle))
-	var bank_limit := lerpf(
-		STABLE_MAX_BANK_DEG_FAF_LOOSE if is_faf else STABLE_MAX_BANK_DEG_SARH_LOOSE,
-		STABLE_MAX_BANK_DEG_FAF_TIGHT if is_faf else STABLE_MAX_BANK_DEG_SARH_TIGHT,
-		s)
+	var bank_limit := stable_bank_limit_deg(is_faf, s)
 	if bank_deg > bank_limit:
 		return false
 	# 3. off-axis 检查
@@ -431,6 +466,9 @@ static func update_formation_opportunity_weapons(ac: Aircraft, delta: float) -> 
 		update_altitude_cycle_ammo(ac, delta)
 		_update_formation_opportunity_gun(ac, delta)
 	update_formation_passive_missile(ac, delta)
+	# 独立副槽已开始的装填必须跨编队继续，不额外开放编队副槽自动开火。
+	if ac.secondary_missile_enabled and ac._secondary_reload_active:
+		update_secondary_missile(ac, delta)
 
 
 static func _update_formation_opportunity_gun(ac: Aircraft, delta: float) -> void:
@@ -1069,10 +1107,6 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 	var hyper_a_g0_omnidirectional_salvo: bool = hyper_a_salvo \
 			and ac.has_meta(META_HYPER_A_G0_OMNIDIRECTIONAL_SALVO)
 
-	# JAM 干扰：完全无法发射导弹（仍允许 cooldown 走完，恢复后立刻能打）
-	if ac.status_jam_active:
-		return
-
 	# 导弹装填系统（生存模式）
 	if ac.enable_missile_reload and ac._missile_reload_active:
 		ac._missile_reload_timer += delta * ac.esm_reload_rate_multiplier() * ac.cd_rate("missile_reload")
@@ -1088,6 +1122,11 @@ static func update_missile(ac: Aircraft, delta: float) -> void:
 			ac._missile_reload_timer = 0.0
 			ac.missile_reload_progress = 0.0
 		return
+	# 禁射与装填分离：JAM 不冻结已经开始的恢复计时。
+	# JAM 干扰：完全无法发射导弹（仍允许 cooldown 走完，恢复后立刻能打）
+	if ac.status_jam_active:
+		return
+
 	if ac.external_missile_control:
 		return
 	# Hyper-A 的独立齐射只在 BOSS 状态机明确开放武器时工作；下降 / 爬升 / 冲锋期硬静默。
@@ -1819,15 +1858,6 @@ static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
 	if sec == null: return
 
 	ac._secondary_cooldown = maxf(ac._secondary_cooldown - delta * ac.cd_rate("weapon"), 0.0)
-	# JAM 期间副槽不发射（仍允许 cooldown 走完，恢复后立刻能打）
-	if ac.status_jam_active: return
-	# 规避模式：与主武器静默一致。副槽不受 weapon_mode / 雷达锥 / 发射窗口质量约束，
-	# 仅凭距离包络对锁定目标盲发——规避机动中机头乱摆时会朝错误几何乱射副弹
-	# （= 用户反馈"规避中朝没有目标的地方发射导弹"）。cooldown 继续倒数，退出规避即可发。
-	# 见 docs/changelogs/player-ai-log.md（2026-06-15 规避盲射根治）
-	# afterburner_window_active：加力窗口全队禁攻击（spec afterburner-mode）
-	if ac.evasion_mode or ac.is_afterburner_mode_active(): return
-
 	# 装填（独立计时器，与主弹无关）
 	if ac._secondary_reload_active:
 		ac._secondary_reload_timer += delta * ac.esm_reload_rate_multiplier()
@@ -1838,6 +1868,16 @@ static func update_secondary_missile(ac: Aircraft, delta: float) -> void:
 			ac._secondary_reload_active = false
 			ac._secondary_reload_timer = 0.0
 		return
+
+	# 与主弹一致：JAM/规避/加力只禁射，恢复进度继续。
+	# JAM 期间副槽不发射（仍允许 cooldown 走完，恢复后立刻能打）
+	if ac.status_jam_active: return
+	# 规避模式：与主武器静默一致。副槽不受 weapon_mode / 雷达锥 / 发射窗口质量约束，
+	# 仅凭距离包络对锁定目标盲发——规避机动中机头乱摆时会朝错误几何乱射副弹
+	# （= 用户反馈"规避中朝没有目标的地方发射导弹"）。cooldown 继续倒数，退出规避即可发。
+	# 见 docs/changelogs/player-ai-log.md（2026-06-15 规避盲射根治）
+	# afterburner_window_active：加力窗口全队禁攻击（spec afterburner-mode）
+	if ac.evasion_mode or ac.is_afterburner_mode_active(): return
 
 	if ac._secondary_cooldown > 0.0: return
 	if ac.secondary_missiles_remaining <= 0:

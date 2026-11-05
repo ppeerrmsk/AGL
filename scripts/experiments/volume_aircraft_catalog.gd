@@ -1056,7 +1056,7 @@ static func metadata_for(kind: String) -> Dictionary:
 			}
 		"x09":
 			record = {
-				"name": "X-09 Thunder Owl", "triangles": 260,
+				"name": "X-09 Thunder Owl", "triangles": 284,
 				"source": "res://docs/specs/systems/aircraft-evolution-tree.md", "source_symbol": "T5 tailless air-superiority fantasy",
 				"source_license": "AGL project-authored concept geometry", "attribution": "AGL project concept",
 				"shape": "鸮翼无尾飞翼、四向矢量喷口、中央脊背与双腹稳定鳍",
@@ -1403,9 +1403,9 @@ static func _build_a10(builder: RefCounted) -> void:
 		_closed_loft(builder, Vector3(4.2 * side, 2.2, 6), [Vector3(-3, 0.95, 1.1),
 			Vector3(-2, 1.4, 1.55), Vector3(3.5, 1.4, 1.55), Vector3(4.5, 1.1, 1.2)],
 			BODY, INTAKE, INTAKE)
-		builder.box(Vector3(2.8 * side, 1.25, 6), Vector3(2.5, 0.55, 3.5), ENGINE)
-		_planform(builder, [Vector2(1, 11.6), Vector2(6.5, 11.3),
-			Vector2(6.5, 14.8), Vector2(1, 14.8)], side, 0.4, 0.95, BODY)
+		builder.box(Vector3(2.55 * side, .90, 6), Vector3(3.25, .70, 3.5), ENGINE)
+		_planform(builder, [Vector2(.68, 11.6), Vector2(6.5, 11.3),
+			Vector2(6.5, 14.8), Vector2(.68, 14.8)], side, 0.4, 0.95, BODY)
 		_fin(builder, 6.3 * side, [Vector2(10.8, 0.7), Vector2(11.5, 4),
 			Vector2(14.5, 3.7), Vector2(15, 0.7)], 0.2, 0.0, BODY)
 	# 中央简化炮口只作识别特征，不是武器/发射点权威。
@@ -1428,8 +1428,8 @@ static func _build_f47(builder: RefCounted) -> void:
 			ENGINE, INTAKE, INTAKE)
 		_planform(builder, [Vector2(2.4, 8.8), Vector2(8.8, 12),
 			Vector2(7.2, 13.6), Vector2(2.88, 12.8)], side, 0.1, 0.55, BODY)
-		_fin(builder, 3.7 * side, [Vector2(7.6, 0.8), Vector2(10, 4.4),
-			Vector2(12, 4), Vector2(14.2, 0.5)], 0.18, side * 0.35, BODY)
+		_fin(builder, 3.7 * side, [Vector2(7.6, 0.46), Vector2(10, 4.4),
+			Vector2(12, 4), Vector2(14.2, 0.17)], 0.18, side * 0.35, BODY)
 		builder.box(Vector3(3 * side, -0.15, -2.5), Vector3(2, 0.85, 2.5), INTAKE)
 
 
@@ -1531,8 +1531,8 @@ static func _build_f35(builder: RefCounted) -> void:
 		_planform(builder, [Vector2(1.9, 8.7), Vector2(3.2, 8.5), Vector2(6.3, 11.5),
 			Vector2(5.9, 14.5), Vector2(2.0, 13.0)], side, -0.12, 0.28, BODY)
 		builder.box(Vector3(2.3 * side, -0.12, -2.7), Vector3(1.35, 1.05, 3.0), INTAKE)
-		_fin(builder, 2.45 * side, [Vector2(7.2, 0.55), Vector2(9.0, 4.7),
-			Vector2(11.6, 4.3), Vector2(13.8, 0.45)], 0.18, side * 0.26, BODY)
+		_fin(builder, 1.95 * side, [Vector2(7.2, 0.55), Vector2(9.0, 4.7),
+			Vector2(11.6, 4.3), Vector2(13.8, 0.45)], 0.18, side * 0.38, BODY)
 
 
 ## YF-23：无独立平尾，长菱形翼与后部 V 尾共同构成独立轮廓。
@@ -1919,7 +1919,7 @@ static func _build_harrier(builder: RefCounted) -> void:
 			Vector2(4.8, 14.6), Vector2(1.1, 13.3)], side, -0.12, 0.22, BODY)
 		builder.box(Vector3(2.0 * side, -0.10, -3.0), Vector3(1.5, 1.35, 2.8), INTAKE)
 		for nozzle_z in [-0.5, 5.0]:
-			builder.box(Vector3(2.25 * side, -0.65, nozzle_z), Vector3(0.65, 0.75, 1.05), ENGINE)
+			builder.box(Vector3(1.92 * side, -0.46, nozzle_z), Vector3(0.65, 0.75, 1.05), ENGINE)
 	_fin(builder, 0.0, [Vector2(7.1, 0.44), Vector2(9.0, 5.3),
 		Vector2(12.0, 4.7), Vector2(14.8, 0.34)], 0.22, 0.0, BODY)
 
@@ -1941,8 +1941,8 @@ static func _build_j20(builder: RefCounted) -> void:
 			Vector3(-3.5, 1.16, .82), Vector3(7.2, 1.12, .68), Vector3(10.4, .68, .42)],
 			ENGINE, INTAKE, INTAKE)
 		builder.box(Vector3(2.8 * side, -.18, -2.7), Vector3(1.65, .85, 2.8), INTAKE)
-		_fin(builder, 2.9 * side, [Vector2(7.0, .42), Vector2(9.2, 4.5),
-			Vector2(12.0, 4.0), Vector2(14.2, .32)], .17, side * .28, BODY)
+		_fin(builder, 2.4 * side, [Vector2(7.0, .42), Vector2(9.2, 4.5),
+			Vector2(12.0, 4.0), Vector2(14.2, .32)], .17, side * 0.405, BODY)
 
 
 static func _build_j35f(builder: RefCounted) -> void:
@@ -2217,7 +2217,7 @@ static func _build_ah64(builder: RefCounted, include_rotors: bool = true) -> voi
 			Vector3(-1.8, .74, .64), Vector3(2.0, .72, .60), Vector3(3.2, .05, .05)], ENGINE)
 	_fin(builder, 0, [Vector2(10.0, .18), Vector2(11.4, 3.5), Vector2(13.4, 3.0),
 		Vector2(15.2, .12)], .16, 0, BODY)
-	builder.box(Vector3(0, 2.75, 0), Vector3(.55, .72, .55), ENGINE)
+	builder.box(Vector3(0, 2.06, 0), Vector3(.55, 2.12, .55), ENGINE)
 	if include_rotors:
 		builder.box(Vector3(0, 3.15, 0), Vector3(32.0, .16, .72), ENGINE)
 		builder.box(Vector3(0, 3.15, 0), Vector3(.72, .16, 31.6), ENGINE)
@@ -2237,7 +2237,7 @@ static func _build_ch47(builder: RefCounted, include_rotors: bool = true) -> voi
 		builder.box(Vector3(3.5 * side, -.55, 3.0), Vector3(1.2, 1.25, 12.0), ENGINE)
 		builder.box(Vector3(2.9 * side, .25, 10.0), Vector3(1.0, 1.0, 3.0), INTAKE)
 	for rotor_z in [-8.5, 8.5]:
-		builder.box(Vector3(0, 3.45, rotor_z), Vector3(.72, 1.2, .72), ENGINE)
+		builder.box(Vector3(0, 3.13, rotor_z), Vector3(.72, 1.90, .72), ENGINE)
 		if include_rotors:
 			builder.box(Vector3(0, 4.08, rotor_z), Vector3(26.75, .16, .70), ENGINE)
 			builder.box(Vector3(0, 4.08, rotor_z), Vector3(.70, .16, 20.5), ENGINE)
@@ -2252,8 +2252,8 @@ static func _build_mq109_family(builder: RefCounted) -> void:
 	for side in [-1.0, 1.0]:
 		_planform(builder, [Vector2(1.2, -5.0), Vector2(5.0, -3.4), Vector2(15.0, 4.8),
 			Vector2(13.2, 8.2), Vector2(5.0, 6.8), Vector2(1.4, 3.6)], side, -.28, .22, BODY)
-		_fin(builder, 2.8 * side, [Vector2(8.0, .24), Vector2(10.0, 3.8),
-			Vector2(12.8, 3.1), Vector2(14.0, .18)], .15, side * .20, BODY)
+		_fin(builder, 1.5 * side, [Vector2(8.0, .24), Vector2(10.0, 3.8),
+			Vector2(12.8, 3.1), Vector2(14.0, .18)], .15, side * 0.542, BODY)
 		builder.box(Vector3(1.25 * side, -.15, 10.2), Vector3(1.1, .80, 3.2), ENGINE)
 	builder.box(Vector3(0, 1.65, -6.0), Vector3(.36, 1.25, 3.6), INTAKE)
 
@@ -2267,8 +2267,8 @@ static func _build_mq112(builder: RefCounted) -> void:
 	for side in [-1.0, 1.0]:
 		_planform(builder, [Vector2(.9, -3.8), Vector2(3.8, -1.8), Vector2(9.0, 4.2),
 			Vector2(8.2, 7.0), Vector2(1.1, 4.6)], side, -.25, .20, BODY)
-		_fin(builder, 2.0 * side, [Vector2(8.2, .20), Vector2(10.0, 4.2),
-			Vector2(12.8, 3.4), Vector2(14.3, .16)], .14, side * .22, BODY)
+		_fin(builder, 0.95 * side, [Vector2(8.2, .20), Vector2(10.0, 4.2),
+			Vector2(12.8, 3.4), Vector2(14.3, .16)], .14, side * 0.47, BODY)
 	builder.box(Vector3(0, -1.05, -3.8), Vector3(.55, .55, 14.0), INTAKE)
 	builder.box(Vector3(0, -1.05, -11.0), Vector3(.82, .82, 1.2), ENGINE)
 	builder.box(Vector3(0, -.12, 13.6), Vector3(1.45, .78, 3.2), ENGINE)
@@ -2285,8 +2285,8 @@ static func _build_mqx(builder: RefCounted) -> void:
 			Vector2(14.5, 8.2), Vector2(7.2, 7.0), Vector2(2.5, 3.0)], side, -.34, .26, BODY)
 		_closed_loft(builder, Vector3(2.4 * side, -.18, 4.2), [Vector3(-4.6, .05, .05),
 			Vector3(-2.5, .92, .64), Vector3(4.0, .88, .58), Vector3(6.0, .05, .05)], ENGINE)
-		_fin(builder, 3.2 * side, [Vector2(6.2, .24), Vector2(8.0, 4.5),
-			Vector2(11.5, 3.8), Vector2(13.4, .18)], .16, side * .24, BODY)
+		_fin(builder, 2.25 * side, [Vector2(6.2, .24), Vector2(8.0, 4.5),
+			Vector2(11.5, 3.8), Vector2(13.4, .18)], .16, side * 0.478, BODY)
 
 
 static func _build_aegis_uav(builder: RefCounted) -> void:
@@ -2311,10 +2311,10 @@ static func _build_loyal_wingman(builder: RefCounted) -> void:
 	for side in [-1.0, 1.0]:
 		_planform(builder, [Vector2(1.0, -3.0), Vector2(4.2, -1.5), Vector2(13.0, 6.0),
 			Vector2(11.8, 8.6), Vector2(1.2, 4.3)], side, -.24, .20, BODY)
-		_fin(builder, 2.1 * side, [Vector2(9.0, .20), Vector2(11.0, 4.0),
-			Vector2(13.8, 3.4), Vector2(15.0, .16)], .14, side * .22, BODY)
+		_fin(builder, 1.2 * side, [Vector2(9.0, .20), Vector2(11.0, 4.0),
+			Vector2(13.8, 3.4), Vector2(15.0, .16)], .14, side * 0.445, BODY)
 		builder.box(Vector3(11.8 * side, .08, 7.0), Vector3(1.1, .55, 1.4), ENGINE)
-	builder.box(Vector3(0, 1.80, -.8), Vector3(.65, 1.0, 4.2), INTAKE)
+	builder.box(Vector3(0, 1.38, -.8), Vector3(.65, 1.0, 4.2), INTAKE)
 	builder.box(Vector3(0, -.12, 14.2), Vector3(1.4, .78, 2.6), ENGINE)
 
 
@@ -2331,8 +2331,8 @@ static func _build_probe(builder: RefCounted) -> void:
 			Vector2(.8, 10.8)], side, -.12, .18, BODY)
 	_fin(builder, 0, [Vector2(7.8, .24), Vector2(9.2, 4.2), Vector2(11.8, 3.7),
 		Vector2(13.8, .16)], .18, 0, BODY)
-	builder.box(Vector3(0, 2.35, -1.5), Vector3(5.0, .18, .38), ENGINE)
-	builder.box(Vector3(0, 2.35, -1.5), Vector3(.38, .18, 5.0), ENGINE)
+	builder.box(Vector3(0, 1.61, -1.5), Vector3(5.0, .28, .38), ENGINE)
+	builder.box(Vector3(0, 1.61, -1.5), Vector3(.38, .28, 5.0), ENGINE)
 
 
 static func _build_faxx(builder: RefCounted) -> void:
@@ -2344,12 +2344,12 @@ static func _build_faxx(builder: RefCounted) -> void:
 	for side in [-1.0, 1.0]:
 		_planform(builder, [Vector2(2.0, -5.0), Vector2(5.2, -3.0), Vector2(15.2, 3.4),
 			Vector2(14.0, 7.2), Vector2(6.2, 6.5), Vector2(2.3, 3.0)], side, -.32, .26, BODY)
-		_planform(builder, [Vector2(14.0, 7.2), Vector2(17.0, 6.2), Vector2(16.2, 9.0),
+		_planform(builder, [Vector2(13.4, 6.5), Vector2(17.0, 6.2), Vector2(16.2, 9.0),
 			Vector2(12.8, 8.8)], side, -.26, .20, BODY)
 		_closed_loft(builder, Vector3(2.3 * side, -.20, 4.5), [Vector3(-4.5, .05, .05),
 			Vector3(-2.4, .88, .62), Vector3(4.0, .84, .56), Vector3(6.0, .05, .05)], ENGINE)
-		_fin(builder, 3.0 * side, [Vector2(7.0, .22), Vector2(8.8, 4.2),
-			Vector2(11.8, 3.6), Vector2(13.5, .16)], .15, side * .22, BODY)
+		_fin(builder, 2.52 * side, [Vector2(7.0, .22), Vector2(8.8, 4.2),
+			Vector2(11.8, 3.6), Vector2(13.5, .16)], .15, side * 0.334, BODY)
 
 
 static func _build_fcas(builder: RefCounted) -> void:
@@ -2378,8 +2378,8 @@ static func _build_gcap(builder: RefCounted) -> void:
 			Vector2(14.6, 8.0), Vector2(6.2, 7.0), Vector2(2.2, 3.4)], side, -.32, .26, BODY)
 		_closed_loft(builder, Vector3(2.4 * side, -.18, 4.7), [Vector3(-4.8, .05, .05),
 			Vector3(-2.8, .90, .64), Vector3(4.2, .88, .58), Vector3(6.2, .05, .05)], ENGINE)
-		_fin(builder, 3.2 * side, [Vector2(7.4, .22), Vector2(9.4, 4.8),
-			Vector2(12.4, 4.0), Vector2(14.0, .16)], .16, side * .22, BODY)
+		_fin(builder, 2.76 * side, [Vector2(7.4, .22), Vector2(9.4, 4.8),
+			Vector2(12.4, 4.0), Vector2(14.0, .16)], .16, side * 0.325, BODY)
 
 
 static func _build_j36(builder: RefCounted) -> void:
@@ -2428,8 +2428,8 @@ static func _build_af03(builder: RefCounted) -> void:
 			Vector2(10.2, 7.0), Vector2(1.8, 5.2)], side, -.27, .22, BODY)
 		_closed_loft(builder, Vector3(1.8 * side, -.20, 5.0), [Vector3(-4.5, .05, .05),
 			Vector3(-2.4, .78, .58), Vector3(4.2, .76, .52), Vector3(6.0, .05, .05)], ENGINE)
-		_fin(builder, 2.6 * side, [Vector2(7.6, .22), Vector2(9.4, 4.4),
-			Vector2(12.0, 3.8), Vector2(14.0, .16)], .15, side * .18, BODY)
+		_fin(builder, 2.15 * side, [Vector2(7.6, .22), Vector2(9.4, 4.4),
+			Vector2(12.0, 3.8), Vector2(14.0, .16)], .15, side * 0.282, BODY)
 	builder.box(Vector3(0, -1.05, -3.8), Vector3(.62, .62, 15.0), INTAKE)
 	builder.box(Vector3(0, -1.05, -11.6), Vector3(.92, .86, 1.4), ENGINE)
 
@@ -2447,9 +2447,9 @@ static func _build_ax00(builder: RefCounted) -> void:
 			Vector2(1.2, -5.8)], side, -.10, .30, BODY)
 		_closed_loft(builder, Vector3(2.2 * side, -.18, 4.7), [Vector3(-4.5, .05, .05),
 			Vector3(-2.4, .88, .62), Vector3(4.0, .84, .56), Vector3(6.0, .05, .05)], ENGINE)
-		_fin(builder, 3.0 * side, [Vector2(7.0, .22), Vector2(8.8, 4.4),
-			Vector2(11.8, 3.7), Vector2(13.8, .16)], .15, side * .25, BODY)
-	builder.box(Vector3(0, 1.82, -.4), Vector3(.75, .9, 4.6), CANOPY)
+		_fin(builder, 2.52 * side, [Vector2(7.0, .22), Vector2(8.8, 4.4),
+			Vector2(11.8, 3.7), Vector2(13.8, .16)], .15, side * 0.359, BODY)
+	builder.box(Vector3(0, 1.65, -.4), Vector3(.75, .9, 4.6), CANOPY)
 
 
 static func _build_orion_final_form(builder: RefCounted) -> void:
@@ -2463,10 +2463,10 @@ static func _build_orion_final_form(builder: RefCounted) -> void:
 			Vector2(1.8, -7)], side, -.1, .25, BODY)
 		builder.box(Vector3(side * 2, -.2, 13), Vector3(2, 1, 6), ENGINE)
 		builder.box(Vector3(side * 2.2, .6, -8), Vector3(.5, .45, 11), INTAKE)
-		_fin(builder, side * 3, [Vector2(7, .3), Vector2(10, 3), Vector2(15, 2),
-			Vector2(16, .3)], .15, side * .4, BODY)
+		_fin(builder, 2.48 * side, [Vector2(7, .3), Vector2(10, 3), Vector2(15, 2),
+			Vector2(16, .3)], .15, side * 0.573, BODY)
 		for hatch in range(4):
-			builder.box(Vector3(side * 1.7, 1.3, -1 + hatch * 2.4), Vector3(.8, .18, 1.5), INTAKE)
+			builder.box(Vector3(side * 1.7, 1.05 - hatch * .06, -1 + hatch * 2.4), Vector3(.8, .18, 1.5), INTAKE)
 
 
 static func _build_orion_far_lod(fang: bool) -> ArrayMesh:
@@ -2617,16 +2617,16 @@ static func _build_x02(builder: RefCounted) -> void:
 			Vector2(1.1, -5.8)], side, -.10, .30, BODY)
 		_closed_loft(builder, Vector3(2.1 * side, -.20, 5.0), [Vector3(-4.5, .05, .05),
 			Vector3(-2.4, .84, .60), Vector3(4.0, .82, .54), Vector3(6.0, .05, .05)], ENGINE)
-		_fin(builder, 2.9 * side, [Vector2(7.2, .22), Vector2(9.2, 4.5),
-			Vector2(12.2, 3.8), Vector2(14.0, .16)], .15, side * .22, BODY)
+		_fin(builder, 2.35 * side, [Vector2(7.2, .22), Vector2(9.2, 4.5),
+			Vector2(12.2, 3.8), Vector2(14.0, .16)], .15, side * 0.351, BODY)
 	builder.box(Vector3(0, -1.02, -3.2), Vector3(.60, .62, 14.0), INTAKE)
 
 
 static func _build_x09(builder: RefCounted) -> void:
-	var owl_wing := PackedVector2Array([Vector2(0, -15.0), Vector2(5.0, -10.5),
+	var owl_wing := PackedVector2Array([Vector2(0, -15.0), Vector2(2.0, -13.5), Vector2(5.0, -10.5),
 		Vector2(17.0, -2.0), Vector2(15.5, 4.0), Vector2(10.5, 7.0), Vector2(5.0, 12.5),
 		Vector2(0, 10.0), Vector2(-5.0, 12.5), Vector2(-10.5, 7.0), Vector2(-15.5, 4.0),
-		Vector2(-17.0, -2.0), Vector2(-5.0, -10.5), Vector2(-2.0, -13.5), Vector2(2.0, -13.5)])
+		Vector2(-17.0, -2.0), Vector2(-5.0, -10.5), Vector2(-2.0, -13.5)])
 	builder.prism(owl_wing, -.48, .42, BODY)
 	_closed_loft(builder, Vector3.ZERO, [Vector3(-15, .05, .05), Vector3(-10, 1.15, .62),
 		Vector3(-3, 2.0, .96), Vector3(4, 1.9, .86), Vector3(11, 1.0, .45),
@@ -2653,10 +2653,10 @@ static func _build_x13(builder: RefCounted) -> void:
 			Vector2(14.0, 8.5), Vector2(6.0, 7.0), Vector2(1.9, 4.0)], side, -.30, .24, BODY)
 		_closed_loft(builder, Vector3(2.1 * side, -.20, 5.0), [Vector3(-4.5, .05, .05),
 			Vector3(-2.4, .84, .60), Vector3(4.0, .82, .54), Vector3(6.0, .05, .05)], ENGINE)
-		_fin(builder, 2.9 * side, [Vector2(7.0, .22), Vector2(9.0, 4.5),
-			Vector2(12.0, 3.8), Vector2(14.0, .16)], .15, side * .22, BODY)
+		_fin(builder, 2.35 * side, [Vector2(7.0, .22), Vector2(9.0, 4.5),
+			Vector2(12.0, 3.8), Vector2(14.0, .16)], .15, side * 0.351, BODY)
 		builder.box(Vector3(14.7 * side, .30, 5.8), Vector3(1.5, 1.1, 2.4), ENGINE)
-	builder.box(Vector3(0, 1.78, -.5), Vector3(.70, .92, 5.0), INTAKE)
+	builder.box(Vector3(0, 1.55, -.5), Vector3(.70, .92, 5.0), INTAKE)
 
 
 static func _build_x21(builder: RefCounted) -> void:
@@ -2674,7 +2674,7 @@ static func _build_x21(builder: RefCounted) -> void:
 			Vector3(-2.8, .82, .58), Vector3(4.8, .80, .52), Vector3(7.0, .05, .05)], ENGINE)
 		_fin(builder, 2.6 * side, [Vector2(7.5, .22), Vector2(9.2, 4.5),
 			Vector2(12.0, 3.8), Vector2(14.2, .16)], .15, side * .18, BODY)
-		builder.box(Vector3(4.2 * side, -.90, 1.8), Vector3(1.0, .70, 8.0), INTAKE)
+		builder.box(Vector3(4.2 * side, -.50, 1.8), Vector3(1.0, .70, 8.0), INTAKE)
 
 
 static func _build_x44(builder: RefCounted) -> void:
@@ -2694,8 +2694,10 @@ static func _build_x44(builder: RefCounted) -> void:
 			Vector3(6.5, .05, .05)], ENGINE)
 		_fin(builder, 3.8 * side, [Vector2(6.8, .28), Vector2(8.6, 5.2),
 			Vector2(12.0, 4.5), Vector2(13.8, .20)], .20, side * .16, BODY)
-	for gun_x in [-5.0, 0.0, 5.0]:
-		builder.box(Vector3(gun_x, -.95, -5.0), Vector3(.72, .72, 5.5), INTAKE)
+	builder.box(Vector3(0, -.95, -5.0), Vector3(.72, .72, 5.5), INTAKE)
+	# 两侧炮管从机翼前缘伸出，后段埋入翼根。
+	for gun_x in [-5.0, 5.0]:
+		builder.box(Vector3(gun_x, -.72, -3.75), Vector3(.72, .72, 8.0), INTAKE)
 
 
 static func _build_x77(builder: RefCounted) -> void:
@@ -2710,8 +2712,8 @@ static func _build_x77(builder: RefCounted) -> void:
 			side, -.34, .24, BODY)
 		_closed_loft(builder, Vector3(2.3 * side, -.22, 4.2), [Vector3(-4.5, .05, .05),
 			Vector3(-2.4, .88, .58), Vector3(4.0, .84, .50), Vector3(6.0, .05, .05)], ENGINE)
-		_fin(builder, 3.0 * side, [Vector2(7.0, .18), Vector2(8.5, 3.5),
-			Vector2(11.0, 3.0), Vector2(12.8, .14)], .13, side * .28, BODY)
+		_fin(builder, 2.42 * side, [Vector2(7.0, .18), Vector2(8.5, 3.5),
+			Vector2(11.0, 3.0), Vector2(12.8, .14)], .13, side * 0.446, BODY)
 
 
 static func _build_x90(builder: RefCounted) -> void:
@@ -2723,12 +2725,13 @@ static func _build_x90(builder: RefCounted) -> void:
 	for side in [-1.0, 1.0]:
 		_planform(builder, [Vector2(3.0, -4.0), Vector2(7.0, -2.5), Vector2(17.0, 2.0),
 			Vector2(16.0, 7.5), Vector2(8.0, 8.5), Vector2(3.2, 4.5)], side, -.50, .38, BODY)
-		_fin(builder, 4.5 * side, [Vector2(7.0, .26), Vector2(9.0, 5.0),
-			Vector2(12.5, 4.2), Vector2(14.5, .18)], .18, side * .20, BODY)
+		_fin(builder, 3.46 * side, [Vector2(7.0, .26), Vector2(9.0, 5.0),
+			Vector2(12.5, 4.2), Vector2(14.5, .18)], .18, side * 0.408, BODY)
 	for engine_x in [-5.6, -2.0, 2.0, 5.6]:
 		builder.box(Vector3(engine_x, -.25, 7.0), Vector3(1.5, 1.0, 5.0), ENGINE)
 	for bay_x in [-6.0, -3.6, -1.2, 1.2, 3.6, 6.0]:
-		builder.box(Vector3(bay_x, -1.65, 1.0), Vector3(1.4, .45, 5.2), INTAKE)
+		var bay_y := -1.80 if absf(bay_x) < 2.0 else -.64
+		builder.box(Vector3(bay_x, bay_y, 1.0), Vector3(1.4, .45, 5.2), INTAKE)
 	builder.box(Vector3(0, 2.45, .4), Vector3(1.0, 1.0, 6.0), CANOPY)
 
 

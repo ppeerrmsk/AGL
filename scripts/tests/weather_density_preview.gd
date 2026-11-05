@@ -127,7 +127,7 @@ static func run(host: Node, mode: Node, owner: Node3D, map_name: String) -> void
 		print("Density direct opaque viewport: ",gallery.get_viewport().get_path())
 	else:
 		push_error("Density preview composite not found")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	await tree.create_timer(1.0).timeout
 	await measure(host,gallery,map_name)
@@ -229,4 +229,4 @@ static func check_loop(host: Node, gallery: Node3D) -> void:
 	print("Cloud loop seam mean byte error=",mean_error)
 	if mean_error > 0.02:
 		push_error("Cloud cycle has visible seam")
-		host.get_tree().quit(1)
+		host.AudioManager.request_quit(1)

@@ -1,6 +1,120 @@
 extends RefCounted
 const Worker := preload("res://scripts/rendering/tokyo_map_plan_worker.gd")
 
+class SourceFixture extends Node2D:
+	var gate := Semaphore.new()
+	var success := true
+	func prepare_background_source() -> bool:
+		gate.wait()
+		return success
+
+class BlendLease extends Node:
+	var released: Array[int]=[]
+	var closed := false
+	var input_waiting := false
+	func release_auxiliary(token: int) -> void: released.append(token)
+	func close() -> void: closed=true
+
+class BlendOverlay extends "res://scripts/rendering/tokyo_hlod_overlay.gd":
+	func _cut_covers_current_view(_cut: Dictionary, _catalog: int, _margin_px: float = 0.0) -> bool:
+		return true
+
+
+static func lod_blend_lifecycle_checks(parent: Node) -> int:
+	var failures := 0
+	for ending: String in ["complete","deactivate","exit","input"]:
+		var overlay := BlendOverlay.new()
+		overlay.set_process(false)
+		parent.add_child(overlay)
+		var lease := BlendLease.new()
+		parent.add_child(lease)
+		overlay._stream=lease
+		var old := MeshInstance3D.new()
+		parent.add_child(old)
+		var old_ref: WeakRef=weakref(old)
+		overlay._lod_old_nodes.append(old)
+		overlay._lod_old_cut={"keys":PackedStringArray(["old"]),"configuration":"lod5_full"}
+		overlay._lod_old_catalog=-2
+		overlay._lod_old_token=RefCounted.new()
+		var token: int=overlay._lod_old_token.get_instance_id()
+		if ending=="complete": overlay._end_lod_blend()
+		elif ending=="deactivate": overlay._deactivate()
+		elif ending=="input":
+			overlay._lod_blend_started_usec=Time.get_ticks_usec()
+			overlay._camera_demand={"rate":0.0}
+			overlay._step_lod_blend(1.2,0.0)
+		if ending!="exit":
+			failures+=int(not overlay._lod_old_cut.is_empty() or not overlay._lod_old_nodes.is_empty() or overlay._lod_old_token!=null)
+		overlay.queue_free()
+		await parent.get_tree().process_frame
+		await parent.get_tree().process_frame
+		failures+=int(old_ref.get_ref()!=null or lease.released!=[token] or not lease.closed)
+		lease.queue_free()
+	print("[Tokyo LOD blend lifecycle] fail=",failures)
+	return failures
+
+class SourceSession extends "res://scripts/rendering/tokyo_volume_preload.gd":
+	var accepted := false
+	func _finish_begin(prepared: Node2D) -> void:
+		accepted=true
+		prepared.free()
+		status="ready"
+		set_process(false)
+
+
+static func source_preparation_checks(parent: Node) -> int:
+	var failures := 0
+	for outcome: String in ["success","cancelled","failed"]:
+		var cancelled := outcome=="cancelled"
+		var session := SourceSession.new()
+		parent.add_child(session)
+		var fixture := SourceFixture.new()
+		fixture.success=outcome!="failed"
+		var fixture_ref: WeakRef=weakref(fixture)
+		var session_ref: WeakRef=weakref(session)
+		failures+=int(not session._start_source_preparation(fixture))
+		await parent.get_tree().process_frame
+		failures+=int(session.status!="preparing" or session.accepted)
+		if cancelled:
+			session.cancel()
+			# 实际任务仍被门阻塞；cancel必须返回并继续下一SceneTree帧，不等待信号。
+			await parent.get_tree().process_frame
+			failures+=int(session.status!="cancelled" or session.accepted or session_ref.get_ref()==null)
+		fixture.gate.post()
+		var deadline := Time.get_ticks_msec()+5000
+		while fixture_ref.get_ref()!=null and Time.get_ticks_msec()<deadline: await parent.get_tree().process_frame
+		failures+=int(fixture_ref.get_ref()!=null)
+		if outcome=="success":
+			failures+=int(not session.accepted or session.status!="ready")
+			session.queue_free()
+		await parent.get_tree().process_frame
+		failures+=int(session_ref.get_ref()!=null)
+	print("[Tokyo background source lifecycle] fail=",failures)
+	return failures
+
+
+static func prepared_stream_checks(parent: Node) -> int:
+	var stream_script := preload("res://scripts/rendering/tokyo_hlod_stream.gd")
+	var geometry := {"one":{"components":{"shared":{"bytes":123}}},"two":{"components":{"shared":{"bytes":123}}}}
+	var prepared := stream_script.prepare_hlod_source(geometry,{})
+	var failures := int(prepared.is_empty() or prepared.layout.physical.size()!=1)
+	geometry.one.components.shared.bytes=456
+	failures+=int(prepared.layout.logical.one.components.shared.bytes!=123)
+	failures+=int(not stream_script.prepare_hlod_source({}, {"invalid":{}}).is_empty())
+	var owner_node := Node.new()
+	var stream := stream_script.new()
+	parent.add_child(owner_node);parent.add_child(stream)
+	failures+=int(not stream.configure_prepared_hlod(owner_node,prepared))
+	failures+=int(stream._descriptors.shared.bytes!=123 or stream._expanded_paths.one!=PackedStringArray(["shared"]))
+	failures+=int(stream.is_processing() or not stream._pending.is_empty() or not stream._texture_jobs.is_empty())
+	var stream_ref: WeakRef=weakref(stream)
+	owner_node.queue_free()
+	await parent.get_tree().process_frame
+	await parent.get_tree().process_frame
+	failures+=int(stream_ref.get_ref()!=null)
+	print("[Tokyo prepared stream lifecycle] fail=",failures)
+	return failures
+
 
 class FixturePlanner extends RefCounted:
 	var source: Dictionary={}
@@ -21,7 +135,9 @@ static func wait_ready(parent: Node, worker: RefCounted) -> bool:
 
 
 static func run(parent: Node) -> int:
-	var failures := 0
+	var failures := await source_preparation_checks(parent)
+	failures+=await lod_blend_lifecycle_checks(parent)
+	failures+=await prepared_stream_checks(parent)
 	var fixture := FixturePlanner.new()
 	var worker := Worker.new(fixture)
 	var source := {"value":3}

@@ -102,7 +102,7 @@ func _process(delta: float) -> void:
 		var output := FileAccess.open("res://bench/results/zone_observation_%d.txt" % Time.get_ticks_msec(), FileAccess.WRITE)
 		if output != null:
 			output.store_string("\n".join(_observation_report))
-		get_tree().quit(0 if _observation_fail == 0 else 1)
+		AudioManager.request_quit(0 if _observation_fail == 0 else 1)
 
 func _capture_observation() -> void:
 	await RenderingServer.frame_post_draw

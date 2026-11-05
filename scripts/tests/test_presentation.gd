@@ -586,7 +586,7 @@ func _test_boss_banner_contract() -> void:
 	_assert_true("banner.CSG 左上包装翻译资源已生成",
 		TranslationServer.translate("BOSS_BANNER_CSG_MOTTO") == "AN AWESOME WAVE")
 
-## 同时抵达要按距离反解速度：远的必须更快，否则四线依次穿过而非汇于一点。
+## 同时抵达要按距离反解速度：远的必须更快，否则六线依次穿过而非汇于一点。
 ## 且【全部机位的所需速度必须落在机体包线内】—— 超出会被钳速，同时抵达随之失效。
 ## 这条断言就是为了守住"空间尺度必须从速度反推"这个教训（早期 5200px 进场需 41 秒）
 const F47_MAX_KMH := 2800.0     ## resources/enemy_f47.tres
@@ -601,6 +601,8 @@ func _test_converge_speed_solve() -> void:
 	var conv_dur := 0.0
 	var ingress_at := 0.0
 	var conv_at := 0.0
+	var ingress_span := 0.0
+	var fade_end := 0.0
 	for s in steps:
 		match String(s.get("op", "")):
 			"echelon_ingress":
@@ -608,12 +610,28 @@ func _test_converge_speed_solve() -> void:
 				ingress_dist = float(s.get("ingress_dist", 0.0))
 				ingress_speed = float(s.get("speed", 0.0))
 				ingress_at = float(s.get("at", 0.0))
+				ingress_span = float(s.get("dur", 0.0))
+				fade_end = float(s.get("fade", 0.0)) + float(s.get("stagger", 0.0)) * (SurvivorData.F47_SQUAD_SIZE - 1)
 			"converge":
 				conv_dur = float(s.get("dur", 0.0))
 				conv_at = float(s.get("at", 0.0))
 	if offsets.is_empty() or conv_dur <= 0.0:
 		_assert_true("converge: 序列参数可读", false)
 		return
+
+	_assert_true("ingress: 六机均有独立演出机位", offsets.size() == 6)
+	_assert_true("ingress: 最后一架在淡入窗口内完整显形", fade_end <= ingress_span + 0.001)
+	for i in range(offsets.size()):
+		for j in range(i):
+			var a := Vector2(float(offsets[i][0]), float(offsets[i][1]))
+			var b := Vector2(float(offsets[j][0]), float(offsets[j][1]))
+			_assert_true("ingress: %d/%d 机间距大于隐身触发半径" % [i, j], a.distance_to(b) > 100.0)
+	var squad := F47AceSquad.new()
+	var spawn_slots := squad._get_formation_offsets(Vector2.UP, Vector2.RIGHT)
+	_assert_true("spawn: 六机回退生成机位齐全", spawn_slots.size() == 6)
+	for i in range(spawn_slots.size()):
+		for j in range(i):
+			_assert_true("spawn: %d/%d 不重叠出生" % [i, j], spawn_slots[i].distance_to(spawn_slots[j]) > 100.0)
 
 	var px_per_sec := func(kmh: float) -> float:
 		return kmh / 3.6 * CombatUnit.PIXELS_PER_METER
@@ -633,7 +651,7 @@ func _test_converge_speed_solve() -> void:
 	var slowest := 1e9
 	var fastest := 0.0
 	for o in offsets:
-		var dx: float = CP_AHEAD - float(o[0])
+		var dx: float = -CP_AHEAD - float(o[0])
 		var dy: float = -float(o[1])
 		var dist: float = sqrt(dx * dx + dy * dy)
 		var need: float = kmh_for.call(dist, conv_dur)

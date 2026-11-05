@@ -70,6 +70,7 @@ func _ready() -> void:
 		# 故意不刷新单位自身 `_draw`：覆盖层必须在缓存内容不变时仍保持标签水平。
 		cannon._set_body_heading(cannon.heading - 0.20)
 		await get_tree().process_frame
+	await get_tree().create_timer(0.10).timeout
 	assert(AircraftRenderer.status_panel_entry_count() >= units.size(),
 		"动态旋转回归必须覆盖所有已登记单位标签")
 	# 旋转探针结束后才登记同一 combat target：本样张只验证“紫机体 +
@@ -79,12 +80,14 @@ func _ready() -> void:
 		ac.draw_combat_target_line = true
 		ac.queue_redraw()
 	_prime_damage_flash([aircraft, wingman])
+	status_overlay._sync_registered_panels()
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var output := "res://bench/results/unit_status_label_visual.png"
 	var error := get_viewport().get_texture().get_image().save_png(output)
 	print("[unit_status_label_visual] screenshot=%s err=%d" % [output, error])
 	_prime_damage_flash([aircraft, wingman], 1)
+	status_overlay._sync_registered_panels()
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	var white_output := "res://bench/results/unit_status_label_visual_damage_white.png"
@@ -97,15 +100,14 @@ func _ready() -> void:
 		unit.position *= 3.0
 		unit.queue_redraw()
 	_prime_damage_flash([aircraft, wingman])
-	for _frame in range(3):
-		await get_tree().process_frame
+	await get_tree().create_timer(0.10).timeout
 	await RenderingServer.frame_post_draw
 	var compact_output := "res://bench/results/unit_status_label_visual_compact.png"
 	var compact_error := get_viewport().get_texture().get_image().save_png(compact_output)
 	print("[unit_status_label_visual] screenshot=%s err=%d" % [compact_output,
 		compact_error])
 	AircraftRenderer.player_ref = null
-	get_tree().quit(0 if error == OK and white_error == OK and compact_error == OK else 1)
+	AudioManager.request_quit(0 if error == OK and white_error == OK and compact_error == OK else 1)
 
 
 func _spawn_aircraft(parent: Node2D, pos: Vector2, callsign: String,

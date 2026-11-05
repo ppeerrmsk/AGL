@@ -294,12 +294,12 @@ func _draw_theme(index: int, color: Color) -> void:
 
 
 func _draw_data_label() -> void:
-	# 十四块并排标签会重新形成“一坨”；常态显示尾节，
-	# 其他车厢在悬停或锁定时再显示。
-	if not damageable and not is_hovered and not is_locked:
-		return
-	super._draw_data_label()
+	AircraftRenderer.draw_status_snapshot(self)
 
+
+func status_label_visible() -> bool:
+	# 常态只显示当前可击破尾节，悬停/锁定可检查其他车厢。
+	return damageable or is_hovered or is_locked
 
 func _status_label_lines(compact: bool) -> PackedStringArray:
 	var name := params.display_name if params else "TRAIN CAR"

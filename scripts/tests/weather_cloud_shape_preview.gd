@@ -77,7 +77,7 @@ static func run(host: Node, mode: Node, owner: Node3D, map_name: String) -> void
 			var error := host.get_viewport().get_texture().get_image().save_png(path)
 			if error != OK:
 				push_error("Weather shape capture failed: " + path)
-				tree.quit(1)
+				AudioManager.request_quit(1)
 				return
 			print("Weather shape ",style," triangles=",total," capture=",path)
 		for node in nodes:

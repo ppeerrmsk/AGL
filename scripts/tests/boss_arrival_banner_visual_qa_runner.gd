@@ -52,7 +52,7 @@ func _ready() -> void:
 	var black_star_final_err: Error = await _capture(
 		banner, 1.0, "res://bench/results/boss_arrival_banner_black_star_final.png")
 
-	get_tree().quit(0 if step_02_err == OK and step_05_err == OK and final_err == OK \
+	AudioManager.request_quit(0 if step_02_err == OK and step_05_err == OK and final_err == OK \
 		and wraith_step_err == OK and wraith_final_err == OK and csg_final_err == OK \
 		and black_star_final_err == OK else 1)
 

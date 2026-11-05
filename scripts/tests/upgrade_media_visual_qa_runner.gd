@@ -84,7 +84,7 @@ func _ready() -> void:
 		ok = ok and error == OK
 	print("[upgrade_media_visual] outputs=%s ok=%s" % [str([
 		OUTPUT_THREE, OUTPUT_FOUR, OUTPUT_BOOT, OUTPUT_THREE_HOVER, OUTPUT_INSERT]), str(ok)])
-	get_tree().quit(0 if ok else 1)
+	AudioManager.request_quit(0 if ok else 1)
 
 
 func _build_progression_target() -> void:

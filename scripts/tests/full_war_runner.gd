@@ -22,7 +22,7 @@ func _run() -> void:
 		await _run_profile(String(get_tree().get_meta("bench_scenario", "")))
 		return
 	await run_checks()
-	get_tree().quit(0 if _fail == 0 else 1)
+	AudioManager.request_quit(0 if _fail == 0 else 1)
 
 func run_checks() -> int:
 	await _capacity_case()
@@ -219,7 +219,7 @@ func _run_profile(scenario: String) -> void:
 	mode.queue_free()
 	await get_tree().process_frame
 	await get_tree().create_timer(0.7).timeout
-	get_tree().quit(0 if _fail == 0 and bool(opening.passed) and bool(combat.passed) and bool(panel.passed) else 1)
+	AudioManager.request_quit(0 if _fail == 0 and bool(opening.passed) and bool(combat.passed) and bool(panel.passed) else 1)
 
 func _capture(filename: String) -> void:
 	await RenderingServer.frame_post_draw

@@ -5,6 +5,7 @@ const Rules = preload("res://scripts/survivor/orion_fire_control.gd")
 const Config = preload("res://scripts/survivor/orion_airframe_config.gd")
 const FangLaser = preload("res://scripts/survivor/orion_fang_laser.gd")
 const WeaponOverlay = preload("res://scripts/survivor/orion_weapon_overlay.gd")
+const DisplayPacing = preload("res://scripts/util/display_pacing.gd")
 const TEAM := CombatUnit.TEAM_FREE_FOR_ALL_BASE + 18
 
 var active := false
@@ -429,23 +430,31 @@ func _present_weapons() -> void:
 		var count := mini(int(repetitions[uid]), maxi(0, 1 + floori((lock_elapsed - Rules.LOCK_BASE) / Rules.LOCK_REPEAT)))
 		var progress := clampf(lock_elapsed / Rules.LOCK_BASE, 0.0, 1.0) if count == 0 \
 			else clampf(fmod(maxf(lock_elapsed - Rules.LOCK_BASE, 0.0), Rules.LOCK_REPEAT) / Rules.LOCK_REPEAT, 0.0, 1.0)
-		locks.append({"position": ac.global_position, "count": count, "progress": progress, "alpha": 0.8})
+		locks.append({"position": DisplayPacing.display_origin(ac), "count": count, "progress": progress, "alpha": 0.8})
 	var beams: Array[Dictionary] = []
 	for laser in lasers:
 		if laser.source_id != 0 and laser.phase != FangLaser.Phase.COOLDOWN:
-			beams.append({"start": laser.beam_start, "end": laser.beam_end,
+			var source := _aircraft(laser.source_id)
+			if source == null or source.is_destroyed:
+				continue
+			# 持续光剑随显示机体移动；判定端点仍由 FangLaser 独立维护。
+			var start := DisplayPacing.display_origin(source)
+			var heading := source.heading + DisplayPacing.display_rotation_offset(source)
+			beams.append({"start": start, "end": start + Vector2(sin(heading), -cos(heading)) * Rules.BEAM_LENGTH,
 				"active": laser.phase == FangLaser.Phase.ACTIVE})
 	var host := body()
 	if host != null:
 		if _rail_elapsed >= 0.0:
 			var target := _aircraft(_rail_target_id)
+			var host_position := DisplayPacing.display_origin(host)
+			var host_heading := host.heading + DisplayPacing.display_rotation_offset(host)
 			for index in range(_rail_fired, 2):
-				var direction := Vector2(sin(host.heading), -cos(host.heading))
+				var direction := Vector2(sin(host_heading), -cos(host_heading))
 				if _rail_aims.has(index):
 					direction = _rail_aims[index]
 				elif target != null:
-					direction = (target.global_position - host.global_position).normalized()
-				var start := host.global_position + Vector2(-10.0 if index == 0 else 10.0, 0.0).rotated(host.heading)
+					direction = (DisplayPacing.display_origin(target) - host_position).normalized()
+				var start := host_position + Vector2(-10.0 if index == 0 else 10.0, 0.0).rotated(host_heading)
 				beams.append({"start": start, "end": start + direction * 3000.0, "active": false})
 	overlay.present(locks, beams, rail_lines.duplicate(), intercept_flashes.duplicate())
 

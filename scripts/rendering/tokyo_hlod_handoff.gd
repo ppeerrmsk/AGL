@@ -33,6 +33,7 @@ static func catalog_index(catalogs: Array[Dictionary], scale: float, prefetch_fi
 	if not is_finite(scale) or scale<=0: return -1
 	var selected := -1
 	for n in catalogs.size():
+		if catalogs[n].get("transition_only",false): continue
 		var interval: Array=catalogs[n].range
 		if scale>float(interval[0]) and scale<=float(interval[1]): selected=n;break
 	if selected<0: return selected
@@ -43,6 +44,64 @@ static func catalog_index(catalogs: Array[Dictionary], scale: float, prefetch_fi
 		for n in catalogs.size():
 			if is_equal_approx(float(catalogs[n].range[0]),boundary): return n
 	return selected
+
+static func display_catalog_index(catalogs: Array[Dictionary], scale: float, current: int) -> int:
+	# 预取只准备资源；显示沿真实范围选档，缩远保留8%滞回，避免阈值两边反复跳档。
+	var actual := catalog_index(catalogs,scale,false)
+	if actual<0 or current<0 or current>=catalogs.size() or catalogs[current].get("transition_only",false): return actual
+	var lower := float(catalogs[current].range[0])
+	var upper := float(catalogs[current].range[1])
+	return current if scale>=lower*0.92 and scale<=upper else actual
+
+
+static func display_target_allowed(catalogs: Array[Dictionary], scale: float, current: int, next: int) -> bool:
+	# 预测与缓存可以提前准备，但不能绕过实际显示阈值；混合桥接仍由覆盖和预算门裁决。
+	if next==-2: return true
+	if next<0 or next>=catalogs.size(): return false
+	return catalogs[next].get("transition_only",false) or next==display_catalog_index(catalogs,scale,current)
+
+
+static func blend_allowed(old: Dictionary, next: Dictionary, combined_bytes: int, budget: int) -> bool:
+	return old.get("within_budget",false) and next.get("within_budget",false) \
+		and old.get("keys") is PackedStringArray and next.get("keys") is PackedStringArray \
+		and not old.keys.is_empty() and not next.keys.is_empty() and old.keys.size()+next.keys.size()<=16 \
+		and Contract.integer(old.get("triangles"),0,240000) and Contract.integer(next.get("triangles"),0,240000) \
+		and int(old.get("triangles",240001))+int(next.get("triangles",240001))<=240000 \
+		and combined_bytes>=0 and combined_bytes<=budget
+
+
+static func preload_entry_scale(catalogs: Array[Dictionary], scale: float, rate: float) -> float:
+	var index := catalog_index(catalogs,scale,false)
+	if index<0 or not is_finite(rate) or rate< -0.02: return 0.0
+	var boundary := float(catalogs[index].range[1])
+	return boundary*1.001 if scale>=boundary*Contract.PREFETCH_RATIO else 0.0
+
+
+static func prediction_checkpoint(catalogs: Array[Dictionary], scale: float, future: float, rate: float, current: int = -1) -> float:
+	# 先准备必经的相邻档入口，不能让固定时间预测越过它、只加载更远的终点。
+	if not is_finite(rate) or absf(rate)<0.02: return future
+	var index := display_catalog_index(catalogs,scale,current)
+	var boundary := 0.0
+	if index>=0: boundary=float(catalogs[index].range[1]) if rate>0.0 else float(catalogs[index].range[0])*0.92
+	elif rate<0.0:
+		for catalog: Dictionary in catalogs:
+			if not catalog.get("transition_only",false): boundary=maxf(boundary,float(catalog.range[1]))
+		if scale<=boundary: return future
+		# 缩远先覆盖边界前最后一个原生视野，再准备边界后的HLOD。
+		# 后续预测已经到过此点时必须继续，不能把全部前探点钉在同一倍率。
+		var native_edge := boundary*1.001
+		if scale>native_edge and not is_equal_approx(scale,native_edge): return maxf(future,native_edge)
+	var checkpoint := boundary*(1.001 if rate>0.0 else 0.999)
+	if boundary<=0.0: return future
+	return minf(future,checkpoint) if rate>0.0 else maxf(future,checkpoint)
+
+
+static func blend_progress(age: float, start_scale: float, scale: float, boundary: float) -> float:
+	var progress := clampf(age/0.09,0.0,1.0)
+	if start_scale>0.0 and scale>0.0 and boundary>0.0 and not is_equal_approx(start_scale,boundary):
+		progress=maxf(progress,clampf(log(scale/start_scale)/log(boundary/start_scale),0.0,1.0))
+	return smoothstep(0.0,1.0,progress)
+
 
 static func native_qualified(cut: Dictionary, scale: float) -> bool:
 	if not is_finite(scale) or scale<=0 or not cut.get("keys") is PackedStringArray or cut.keys.is_empty(): return false
@@ -73,6 +132,20 @@ static func pan_lead(velocity: Vector2, scale: float, horizon: float, size: Vect
 static func motion_guard_need(velocity: Vector2, scale: float, size: Vector2) -> float:
 	# 显示切面应能撑过0.25秒平移（与裁页同一前探视窗）；静止为0，上限为最宽192px保护带。
 	return minf(192.0,pan_lead(velocity,scale,0.25,size).length()*scale)
+
+
+static func return_horizons(distance_px: float, size: Vector2, rate: float, step: float) -> Array[float]:
+	# 回中是指数路径：固定时间点在远距离下会跳过整片视野。按屏幕距离均分路径，
+	# 再换回正式跟随曲线的时刻；只用于预取，不改变实际镜头或清晰度。
+	if not is_finite(distance_px) or distance_px<0.0 or not size.is_finite() or minf(size.x,size.y)<=0.0 \
+		or not is_finite(rate) or rate<=0.0 or not is_finite(step) or step<0.0: return []
+	var effective := -log(maxf(0.0001,1.0-rate*step))/step if step>0.0 else rate
+	var segments := clampi(ceili(distance_px/(minf(size.x,size.y)*0.4)),2,10)
+	var result: Array[float]=[1.0,0.005]
+	for index in range(1,segments):
+		var horizon := -log(1.0-float(index)/segments)/effective
+		if horizon>0.005 and horizon<1.0: result.append(horizon)
+	return result
 
 
 ## 运动中改用实际档时，实际档到期前须留出换回细档的裁页与装载时间。
@@ -213,11 +286,38 @@ static func uncovered_view(catalog: Dictionary, cut: Dictionary, view: Rect2) ->
 	return uncovered
 
 
+static func shared_texture_meshes(catalogs: Array[Dictionary]) -> Dictionary:
+	# 同一图像和同一地理范围的相邻细档只补网格，不重复上传纹理。只生成纯请求，不授予显示资格。
+	var result := {}
+	for index in catalogs.size():
+		var source: Dictionary=catalogs[index]
+		if source.get("mixed_scales",false): continue
+		var finer := -1
+		for candidate in catalogs.size():
+			if catalogs[candidate].get("mixed_scales",false) or float(catalogs[candidate].max_scale)<=float(source.max_scale): continue
+			if finer<0 or float(catalogs[candidate].max_scale)<float(catalogs[finer].max_scale): finer=candidate
+		if finer<0: continue
+		var images := {}
+		for row: Dictionary in catalogs[finer].rows.values():
+			var image: String=row.native_texture.path
+			if not images.has(image): images[image]=[]
+			images[image].append(row)
+		var aliases := {}
+		for row: Dictionary in source.rows.values():
+			for other: Dictionary in images.get(row.native_texture.path,[]):
+				if row.bounds!=other.bounds or row.native_geometry.path==other.native_geometry.path: continue
+				aliases[row.native_geometry.path]={"mesh":other.native_geometry.path,"image":row.native_texture.path}
+				break
+		if not aliases.is_empty(): result[index]=aliases
+	return result
+
+
 static func prefetch_changed(previous: Dictionary, next: Dictionary, catalog: int) -> bool:
 	# 未设置的空列表与压缩字符串列表必须先归一化，不能直接跨类型比较。
 	return PackedStringArray(previous.get("prefetch_keys",[]))!=PackedStringArray(next.get("prefetch_keys",[])) \
 		or PackedStringArray(previous.get("guard_prefetch_keys",[]))!=PackedStringArray(next.get("guard_prefetch_keys",[])) \
 		or int(previous.get("prefetch_catalog",catalog))!=int(next.get("prefetch_catalog",catalog)) \
+		or bool(previous.get("path_prefetch_first",false))!=bool(next.get("path_prefetch_first",false)) \
 		or Array(previous.get("prefetch_extra",[]))!=Array(next.get("prefetch_extra",[]))
 
 
@@ -225,12 +325,16 @@ static func prefetch_requests(catalogs: Array[Dictionary], cut: Dictionary, cata
 	var requests: Array[Dictionary]=[]
 	# 当前边缘与预测LOD是两份不同身份的清单；预测更新不得覆盖当前保护带。
 	# 真实目标由调用者先排队；随后准备预测切面，最后才加载可能超显示预算的扩大保护带。
+	var group := 0
 	for pair: Array in [[cut.get("prefetch_catalog",catalog),cut.get("prefetch_keys",[])],[catalog,cut.get("guard_prefetch_keys",[])]]:
+		if group==1 and cut.get("path_prefetch_first",false):
+			requests.append_array(cut.get("prefetch_extra",[]))
+		group+=1
 		var index: int=pair[0]
 		for key: String in pair[1]:
 			requests.append({"mesh":key if index==-2 else catalogs[index].rows[key].native_geometry.path,
 				"image":"" if index==-2 else catalogs[index].rows[key].native_texture.path})
-	requests.append_array(cut.get("prefetch_extra",[]))
+	if not cut.get("path_prefetch_first",false): requests.append_array(cut.get("prefetch_extra",[]))
 	return requests
 
 

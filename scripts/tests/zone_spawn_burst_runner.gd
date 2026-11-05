@@ -50,7 +50,7 @@ func _ready() -> void:
 	var zones: ZoneData = mode._zone_data
 	if zm == null or zones == null:
 		printerr("[ZoneSpawnBurst] survivor mode did not initialise zone missions")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	mode.player_aircraft.set("invulnerable", true)
 	var candidates: Array[StringName] = []
@@ -62,7 +62,7 @@ func _ready() -> void:
 			candidates.append(zid)
 	if candidates.is_empty():
 		printerr("[ZoneSpawnBurst] no ground-capable zone")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	print("[ZoneSpawnBurst] candidates=%s mode=%s" % [candidates, "sliced" if _sliced else "sync"])
 	zm.tier3_threat_changed.connect(_on_tier3_threat_changed)
@@ -105,7 +105,7 @@ func _ready() -> void:
 	print("[ZoneSpawnBurst] worst spawn frame (trigger+first frame or later frame) = %.1fms" % worst_frame_ms)
 	mode.queue_free()
 	await get_tree().process_frame
-	get_tree().quit(0)
+	AudioManager.request_quit(0)
 
 
 func _on_tier3_threat_changed(_zone_id: StringName, _profile: StringName, active: bool) -> void:

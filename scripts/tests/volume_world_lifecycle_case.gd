@@ -42,13 +42,15 @@ func run(parent: Node) -> int:
 	mount.initialize(params)
 	ac.set_meta(&"mg_mounts", [mount])
 	probe._counts["prop"] = 0
+	probe._counts["mount_support"] = 0
 	probe._sync_goose_mounts(ac, Color.WHITE)
-	_check(int(probe._counts["prop"]) == 1, "live mount is submitted")
+	_check(int(probe._counts["prop"]) == 1 and int(probe._counts["mount_support"]) == 1, "live mount is submitted")
 	mount.apply_damage(200.0)
 	await parent.get_tree().process_frame
 	probe._counts["prop"] = 0
+	probe._counts["mount_support"] = 0
 	probe._sync_goose_mounts(ac, Color.WHITE)
-	_check(mount.destroyed and int(probe._counts["prop"]) == 0, "real mount death removes proxy next frame")
+	_check(mount.destroyed and int(probe._counts["prop"]) == 0 and int(probe._counts["mount_support"]) == 0, "real mount death removes proxy next frame")
 	ac.take_damage(99999.0, null, "missile")
 	await parent.get_tree().process_frame
 	probe._process(0.11)

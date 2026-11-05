@@ -21,7 +21,7 @@ func _ready() -> void:
 	var profile := load("res://resources/playable_f14.tres") as PlayableAircraft
 	if params == null or profile == null:
 		push_error("[aircraft_label_visual] F-14 runtime resources missing")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	aircraft.params = params.duplicate(true)
 	PlayableSetup.deep_dup_weapons(aircraft.params)
@@ -73,4 +73,4 @@ func _ready() -> void:
 	var error := get_viewport().get_texture().get_image().save_png(output)
 	print("[aircraft_label_visual] screenshot=%s err=%d" % [output, error])
 	AircraftRenderer.player_ref = null
-	get_tree().quit(0 if error == OK else 1)
+	AudioManager.request_quit(0 if error == OK else 1)

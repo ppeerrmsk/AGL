@@ -3,7 +3,7 @@ id: boss-clear-progression
 kind: system
 status: done
 schema_version: 1
-spec_version: 5
+spec_version: 6
 owner: 用户（设计） / Codex（落地）
 depends_on: [career-archive, wraith-squadron, mother-goose]
 reconstruction_complete: true
@@ -38,18 +38,20 @@ reconstruction_complete: true
 
 | 历史击败次数 | 编成变化 |
 |---:|---|
-| 0 | 原四架 F-47，无额外单位 |
+| 0 | 六架 F-47（4 KNIGHT + 2 SNIPER），无额外单位 |
 | ≥1 | 接战瞬间追加 **2 架 YF-23 远距狙击支援机**；不参加登场演出 |
-| ≥3 | 原四架 F-47 装配通用恐惧锥；保留双 YF-23 支援，支援机不装配恐惧 |
+| ≥3 | 六架 F-47 装配通用恐惧锥；保留双 YF-23 支援，支援机不装配恐惧 |
 
 恐惧锥按本场生成前的历史快照判定：第三次击败后的下一场才出现，0/1/2 次时无配置、无控制器。独立 `wraith_progression_loadout` 负责选择配置，`F47AceSquad.configure_progression` 负责接线，通用恐惧模块不读取档案或识别 Wraith；详细效果见 [player-fear-wraith-cone](player-fear-wraith-cone.md)。
+
+所有历史层本体固定六架；历史 ≥1 时总计八架，更高次数不增加实体或单机数值。
 
 YF-23 支援机规则：
 
 | 项目 | 值 |
 |---|---|
 | 数量 | 2 |
-| 出生 | 以 Wraith 存活四机的队形中心为基准，沿“玩家 → Wraith”轴在 Wraith 后方再退 1800 px；总体离玩家不少于 5000 px，左右各偏 700 px；地图边界内缩 800 px |
+| 出生 | 以 Wraith 存活六机的队形中心为基准，沿“玩家 → Wraith”轴在 Wraith 后方再退 1800 px；总体离玩家不少于 5000 px，左右各偏 700 px；地图边界内缩 800 px |
 | 角色 | SNIPER；低于 2000 px（4000 m）开始脱离，拉到 3000 px（6000 m）重新站位 |
 | 锁定 / 隐形 | 不设 `lock_immune_override`，但启用传感器隐形：维持有效玩家小队雷达接触时按普通飞机规则发现、积累锁定并可使用导弹攻击；处于全部玩家机 1000px 外失联 5.0s 后隐藏，近距立即揭露，左下雷达保留匿名位置提示 |
 | BOSS 结算 | 不加入 Wraith `members/all_members`；不进 BOSS 血条；不阻塞胜利 |
@@ -96,7 +98,7 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 
 - YF-23 在 `engage()` 才生成，因此不会进入 `<boss_id>_arrival` 演员列表。
 - 两机组成独立 Squad，从 Wraith 队形后方进场，目标来源使用 BOSS 优先级，玩家切控时必须随 encounter 的 `set_player_ref()` 重定向。
-- Wraith 四机全灭仍立即胜利；YF-23 存活与否不参与判定。
+- Wraith 六机全灭仍立即胜利；YF-23 存活与否不参与判定。
 
 ### 3.3 Mother Goose 型号门
 
@@ -113,7 +115,7 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 
 ## 5. 验收标准（Acceptance / Litmus）
 
-- [x] 新档/0 次击败：Wraith 仍为四机；CSG 无 CG 且为 2 DDG+6 FFG；Goose 不生成 MQ-111/112。
+- [x] 新档/0 次击败：Wraith 仍为六机；CSG 无 CG 且为 2 DDG+6 FFG；Goose 不生成 MQ-111/112。
 - [x] 各自击败 1 次后：Wraith 接战新增 2 YF-23；CSG 为 2 CG+2 DDG+8 FFG；Goose 恢复四型号。
 - [x] Wraith YF-23 不进演出、不进 BOSS 血条、不阻塞胜利；在 Wraith 队形后方且离玩家至少 5000 px 处成对生成；被追近后回到 4–6 km 距离带；启用传感器隐形且在接触建立后可正常锁定。
 - [x] 玩家切控后，两架 YF-23 改追当前操控机，不保留旧玩家引用。
@@ -150,6 +152,8 @@ MQ-111 专属激光：射程 2500 m、DPS 80→18、单目标；热量规则与�
 | 回归测试 | `scripts/tests/test_boss_progression.gd` |
 
 ## 8. 变更记录
+
+- 2026-10-28 / v6：六架 F-47 成为初见及所有强化层本体；双支援仍可选击杀，三败恐惧仍共用一次调度，胜利必须清除全部六架本体。
 
 | 日期 | spec_version | 改动 |
 |---|---:|---|

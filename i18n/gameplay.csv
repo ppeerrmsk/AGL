@@ -15,19 +15,19 @@ AIRFRAME_AFFINITY_CARD_BADGE,机体适配增援,AIRFRAME AFFINITY,機体適応�
 SETTLEMENT_TITLE,机场整备 · 机体决策,AIRFIELD REFIT · AIRFRAME DECISION,飛行場整備 · 機体選択
 SETTLEMENT_EVO_HEADER,进化路线,Evolution routes,進化ルート
 SETTLEMENT_DECISION_HEADER,地勤决策,Ground crew decision,地上クルー判断
-SETTLEMENT_DECISION_BANNER,本次停靠必须二选一：保留当前机体并装备专属技能 / 进化并放弃本次专属装备,CHOOSE ONE FOR THIS STOP: RETAIN + EQUIP SIGNATURE / EVOLVE + FORGO SIGNATURE,今回の停機では二者択一：現行機を維持して専用スキル装備 / 進化して今回は見送る
-SETTLEMENT_RETAIN_OPTION,方案 A // 保留当前机体,OPTION A // RETAIN CURRENT AIRFRAME,選択 A // 現行機を維持
-SETTLEMENT_EVOLVE_OPTION,方案 B // 进化机体,OPTION B // EVOLVE AIRFRAME,選択 B // 機体を進化
+SETTLEMENT_DECISION_BANNER,本次停靠二选一：进化＋全队完整维修 / 增加僚机（不维修）,CHOOSE ONE: EVOLVE + FULL SQUAD REPAIR / ADD WINGMAN (NO REPAIR),二者択一：進化＋全隊完全修理 / 僚機追加（修理なし）
+SETTLEMENT_RETAIN_OPTION,方案 A // 保留机体整备,OPTION A // REFIT CURRENT AIRFRAME,選択 A // 現行機を整備
+SETTLEMENT_EVOLVE_OPTION,方案 A // 进化整备,OPTION A // EVOLVE + REFIT,選択 A // 進化・整備
 SETTLEMENT_DECISION_OR,── 或 / OR ──,── OR ──,── または ──
-SETTLEMENT_RETAIN_CONFIRM,保留机体并装备专属技能,Retain airframe + equip signature,現行機を維持 + 専用スキル装備
+SETTLEMENT_RETAIN_CONFIRM,完整维修＋装备专属技能,Full repair + equip signature,完全修理＋専用スキル装備
 SETTLEMENT_EVOLVE_SELECT_TARGET,先在左侧选择一个当前可进化的机体,Select an evolvable airframe on the left,左側で進化可能な機体を選択
 SETTLEMENT_EVOLVE_TARGET_FMT,已选择：%s,Selected: %s,選択：%s
-SETTLEMENT_SIGNATURE_READY,许可有效。保留当前机体即可立即装备。,License active. Retain this airframe to equip it now.,ライセンス有効。現行機を維持すると即時装備します。
-SETTLEMENT_SIGNATURE_LICENSE_REQUIRED,未购买专属许可。请先在功勋商店解锁。,Signature license not owned. Unlock it in the Merit Shop.,専用ライセンス未購入。功績ショップで解禁してください。
-SETTLEMENT_SIGNATURE_EQUIPPED,本局已装备该专属技能。,Signature already equipped for this run.,この出撃では専用スキルを装備済みです。
+SETTLEMENT_SIGNATURE_READY,许可有效。选择维修将同时装备该专属技能。,License active. Full repair also equips this signature.,ライセンス有効。修理と同時に専用スキルを装備。
+SETTLEMENT_SIGNATURE_LICENSE_REQUIRED,专属许可未购买；本次可完整维修。,Signature license not owned. Full repair is still available.,専用ライセンス未購入。完全修理は利用可能。
+SETTLEMENT_SIGNATURE_EQUIPPED,本局已装备该专属技能；本次只维修。,Signature already equipped. This stop provides repair only.,専用スキルは装備済み。今回は修理のみ。
 SETTLEMENT_SIGNATURE_MISSING,错误：该机体缺少专属技能映射,ERROR: signature skill mapping missing,エラー：専用スキルの対応がありません
-SETTLEMENT_SIGNATURE_RESERVED,专属技能槽已预留；效果尚未设计。,Signature slot reserved; effect not designed yet.,専用スキル枠は予約済みです。効果は未設計です。
-SETTLEMENT_DECISION_REQUIRED,请选择保留并装备或进化机体,Choose retain + equip or evolve,維持して装備 / 機体進化を選択
+SETTLEMENT_SIGNATURE_RESERVED,专属技能尚未制作；本次可完整维修。,Signature not implemented yet. Full repair is still available.,専用スキル未実装。完全修理は利用可能。
+SETTLEMENT_DECISION_REQUIRED,请选择整备或增加僚机,Choose refit or add wingman,整備または僚機追加を選択
 SETTLEMENT_SIGNATURE_EQUIPPED_POPUP_FMT,专属技能已装备：%s,Signature equipped: %s,専用スキル装備：%s
 SETTLEMENT_CONTINUE,继续出击,Return to combat,出撃続行
 SETTLEMENT_NO_EVO,已到进化路线尽头,Evolution line complete,進化ルート完了
@@ -58,7 +58,7 @@ EVO_STAT_RADAR,雷达范围,Radar range,レーダー範囲
 EVO_STAT_LOCK,锁定时间,Lock time,ロック時間
 EVO_STAT_MISSILE,导弹挂载,Missile load,ミサイル搭載
 LEVEL_UP_TOAST_FMT,LV %d — 进化解锁进度已累计,LV %d — evolution unlock progress,LV %d — 進化解放が進行
-EVOLUTION_SUBTITLE_FMT,王牌 %s — 保留并装备专属技能 / 进化后全队跟随,Ace %s — retain + equip signature / evolve with squad,エース %s — 維持して専用装備 / 編隊ごと進化
+EVOLUTION_SUBTITLE_FMT,王牌 %s — 本次停靠选择整备或增加僚机,Ace %s — choose refit or add a wingman at this stop,エース %s — 今回は整備または僚機追加を選択
 EVOLUTION_SKIP,暂不进化,Not now,今回は見送る
 EVOLUTION_LOCKED_FMT,需要 LV %d,Requires LV %d,LV %d が必要
 EVOLUTION_DONE_FMT,全队进化 → %s,Squad evolved → %s,編隊が進化 → %s
@@ -189,8 +189,8 @@ ZONE_MISSION_BOSS,※ 击溃来袭的 BOSS 部队,※ Destroy the incoming BOSS 
 ZONE_MISSION_AIRFIELD,※ 解放机场：摧毁驻守的地面防空（SAM / AA）,※ Liberate the airfield: destroy the ground air-defenses (SAM / AA),※ 飛行場を解放せよ：地上防空(SAM / AA)を破壊
 ZONE_MISSION_TIER3_SUPER_CANNON,※ 摧毁极光长枪并清空全部守军；它会随机瞄准长机或僚机且整条预警带同时受击，近身后无法反击,"※ Destroy AURORA LANCE and clear every defender; it randomly targets the lead or a wingman and strikes the entire warning lane at once, but cannot fight at close range",※ オーロラ・ランスと全守備隊を撃破せよ；長機または僚機を無作為に狙い警告帯全域を同時攻撃するが近距離では反撃不能
 ZONE_MISSION_TIER3_SIEGE_TANK,※ 摧毁攻城坦克并清空全部守军；注意 2×CIWS、长射程 SAM、空爆炮及对地主炮,"※ Destroy the siege tank and clear every defender; beware its 2×CIWS, long-range SAM, airburst gun, and ground-attack main cannon",※ 攻城戦車を破壊し全守備隊を殲滅せよ；2基のCIWS、長射程SAM、空中炸裂砲、対地主砲に注意
-ZONE_MISSION_TIER3_LONG_RANGE_VLS,※ 击毁全部敌方舰艇；远程 VLS 可从战区外发动攻击,"※ Sink every hostile vessel; the long-range VLS can attack beyond the zone",※ 敵艦艇を全て撃沈せよ；長射程VLSは戦域外から攻撃可能
-ZONE_MISSION_TIER3_DEADAIR,※ 击落 DEADAIR 干扰支援机并歼灭全部护航；来源被毁后其 JAM 效果立即消失,"※ Shoot down the DEADAIR jammer and destroy every escort; its JAM effect ends immediately when the source is destroyed",※ DEADAIR妨害支援機と全護衛機を撃墜せよ；発生源の破壊と同時にJAM効果は消失する
+ZONE_MISSION_TIER3_LONG_RANGE_VLS,※ 击毁全部敌方舰艇；远程 VLS 可从战区外发动攻击,※ Sink every hostile vessel; the long-range VLS can attack beyond the zone,※ 敵艦艇を全て撃沈せよ；長射程VLSは戦域外から攻撃可能
+ZONE_MISSION_TIER3_DEADAIR,※ 击落 DEADAIR 干扰支援机并歼灭全部护航；来源被毁后其 JAM 效果立即消失,※ Shoot down the DEADAIR jammer and destroy every escort; its JAM effect ends immediately when the source is destroyed,※ DEADAIR妨害支援機と全護衛機を撃墜せよ；発生源の破壊と同時にJAM効果は消失する
 ZONE_MISSION_STARTED_TIER3_SUPER_CANNON_FMT,⚠ 战区 %s — 摧毁极光长枪并清空守军,⚠ ZONE %s — DESTROY AURORA LANCE AND CLEAR ITS DEFENDERS,⚠ エリア %s — オーロラ・ランスと全守備隊を撃破せよ
 ZONE_MISSION_STARTED_TIER3_SIEGE_TANK_FMT,⚠ 战区 %s — 摧毁攻城坦克并清空守军,⚠ ZONE %s — DESTROY THE SIEGE TANK AND CLEAR ITS DEFENDERS,⚠ エリア %s — 攻城戦車と全守備隊を撃破せよ
 ZONE_MISSION_STARTED_TIER3_LONG_RANGE_VLS_FMT,⚠ 战区 %s — 击毁全部远程 VLS 舰艇,⚠ ZONE %s — DESTROY ALL LONG-RANGE VLS VESSELS,⚠ エリア %s — 長射程VLS艦を全て撃沈せよ
@@ -321,7 +321,7 @@ DOCK_OPHTHALMIA_NAME,奥夫萨尔米亚前线机场,Ophthalmia Forward Airfield,
 DOCK_CARRIER_NAME,友军航母,Allied Carrier,友軍空母
 DOCK_HINT_SLOW,减速至 %d km/h 以下停靠,Slow below %d km/h to dock,%d km/h 以下に減速して着陸
 DOCK_HINT_DOCKING,停靠中…,Docking…,着陸中…
-DOCK_HINT_GO_SETTLE,✈ 进化/回血待结算——飞往停靠点（机场/航母）减速着陆,✈ Evolution/repair pending — fly to a dock (airfield/carrier) and slow to land,✈ 進化/回復が未精算——基地/空母へ飛び減速して着陸
+DOCK_HINT_GO_SETTLE,✈ 飞往机场/航母减速停靠，选择整备或增加僚机,✈ Dock at an airfield/carrier to choose refit or add wingman,✈ 基地・空母へ減速着陸し、整備か僚機追加を選択
 DOCK_REWARD_CLAIMED_FMT,已领取：%s,Claimed: %s,受領：%s
 DOCK_WINGMAN_GRANTED,✚ 停靠补给：僚机 1 架入队,✚ Resupply: +1 wingman joined,✚ 補給：僚機 1 機が編入
 ZONE_CLEARED_REWARD_PENDING_FMT,已攻克 %s！奖励 %s 待停靠领取,%s cleared! Reward %s awaits docking,%s 制圧！報酬 %s は着陸後に受領
@@ -456,3 +456,42 @@ DOCK_AIRFIELD_SPENT_FMT,%s 补给完毕，机场关闭,%s resupplied — airfiel
 MAP_VECTOR_PREVIEW_ON,纯矢量地图 V11：已开启（Shift+F10 返回正式瓦片）,Pure-vector map V11 enabled (Shift+F10 returns to production tiles),純ベクターマップ V11：オン（Shift+F10 で正式タイルに戻る）
 MAP_VECTOR_PREVIEW_OFF,纯矢量地图 V11：已关闭（当前为正式瓦片）,Pure-vector map V11 disabled (production tiles active),純ベクターマップ V11：オフ（正式タイル表示）
 MAP_VECTOR_PREVIEW_UNAVAILABLE,纯矢量预览不可用：已保留正式瓦片,Vector preview unavailable; production tiles retained,純ベクタープレビューを使用できません。正式タイルを維持します
+SETTLEMENT_REPAIR_BANNER,暂无可用进化：完整维修＋可领取的专属技能 / 增加僚机（不维修）,NO EVOLUTION AVAILABLE: FULL REPAIR + ELIGIBLE SIGNATURE / ADD WINGMAN (NO REPAIR),進化不可：完全修理＋取得可能な専用スキル / 僚機追加（修理なし）
+SETTLEMENT_REPAIR_CONFIRM,完整维修,Full repair,完全修理
+SETTLEMENT_REPAIR_DESC,无达标进化出口。保留机体，全队恢复全部生命。,No eligible evolution. Keep this airframe and fully repair the squad.,進化条件未達。現行機を維持し、全隊の耐久値を全回復。
+SETTLEMENT_EVOLVE_DESC,全队换型并恢复全部生命；本次不增加僚机、不领取专属技能。,Evolve and fully repair the squad. No added wingman or signature this stop.,全隊を進化させ完全修理。今回は僚機追加・専用スキル取得なし。
+SETTLEMENT_EVOLVE_CONFIRM,进化＋完整维修,Evolve + full repair,進化＋完全修理
+SETTLEMENT_WINGMAN_OPTION,方案 B // 增加僚机,OPTION B // ADD WINGMAN,選択 B // 僚機追加
+SETTLEMENT_WINGMAN_DESC,增加 1 架当前机型僚机；现有飞机不维修，本次不进化、不领取专属技能。,Add 1 wingman of your current type. Existing aircraft receive no repair; no evolution or signature.,現行機型の僚機を1機追加。既存機の修理・進化・専用スキル取得なし。
+SETTLEMENT_WINGMAN_CONFIRM,增加 1 架僚机（不维修）,Add 1 wingman (no repair),僚機1機追加（修理なし）
+SETTLEMENT_WINGMAN_LICENSE_REQUIRED,需先在生涯商店购买“停靠补给僚机”。,Requires Docking Wingman Resupply from the Career Shop.,キャリアショップの着艦補給ウィングマンが必要。
+SETTLEMENT_WINGMAN_FULL,小队已满 9 架，无法增加僚机。,Squad is full (9 aircraft). Cannot add a wingman.,全9機の編隊上限に到達。僚機追加不可。
+EVO_STATION_TITLE,机体进化 / 机场整备,AIRFRAME / REFIT,機体進化 / 飛行場整備
+EVO_STATION_CONTEXT,当前 %s    ·    小队等级 %d,Current %s    ·    Squad level %d,現行機 %s    ·    編隊レベル %d
+EVO_CHOOSE_ONE,本次停靠 · 二选一,THIS STOP · CHOOSE ONE,今回の着陸 · 二者択一
+EVO_TREE_HELP,点击亮色机体选择 · 悬停查看详情 · 滚动查看路线,Click lit aircraft to select · Hover for details · Scroll to explore,明るい機体を選択 · ホバーで詳細 · スクロールでルート確認
+EVO_OR,或,OR,または
+EVO_REFIT,01 / 整备,01 / REFIT,01 / 整備
+EVO_REINFORCE,02 / 增援,02 / REINFORCE,02 / 増援
+EVO_FULL_REPAIR,全队换型 + 完整维修,Evolve squad + full repair,全隊進化 + 完全修理
+EVO_PICK_TARGET,选择可进化机体,Select an aircraft,進化先を選択
+EVO_CONFIRM_TARGET,确认进化与维修,Confirm evolution + repair,進化・修理を確定
+EVO_KEEP_AIRFRAME,暂无可用进化 · 保留机体,No evolution ready · Keep airframe,進化不可 · 現行機を維持
+EVO_SIGNATURE_INCLUDED,同时获得该专属 · 悬停查看,Signature included · Hover for details,専用スキルも獲得 · ホバーで詳細
+EVO_SIGNATURE_UNAVAILABLE,全队完整维修 · 专属暂不可用,Full squad repair · No signature,全隊完全修理 · 専用スキル未対応
+EVO_SIGNATURE_OWNED,全队完整维修 · 专属已装备,Full squad repair · Skill equipped,全隊完全修理 · 専用スキル装備済み
+EVO_SIGNATURE_LOCKED,全队完整维修 · 专属许可未购买,Full squad repair · No license,全隊完全修理 · 専用ライセンス未購入
+EVO_CONFIRM_REPAIR,确认整备,Confirm refit,整備を確定
+EVO_ADD_WINGMAN,+1 僚机,+1 WINGMAN,+1 僚機
+EVO_SAME_AIRFRAME,增加一架当前机型,One more of your current airframe,現行機型を1機追加
+EVO_NO_REPAIR,不维修,NO REPAIR,修理なし
+EVO_NO_EVOLUTION,本次不进化、不领取专属,No evolution or signature this stop,今回は進化・専用スキル取得なし
+EVO_WINGMAN_LOCKED,需在生涯商店购买僚机补给,Buy wingman resupply in Career Shop,キャリアショップで僚機補給を購入
+EVO_WINGMAN_FULL,已满编 · 9 架,Full squad · 9 aircraft,編隊上限 · 9機
+EVO_CONFIRM_WINGMAN,确认增加僚机,Confirm wingman,僚機追加を確定
+EVO_SELECTED,已选择,SELECTED,選択中
+EVO_HISTORY,已走过的路线,PREVIOUS AIRFRAME,通過済み
+EVO_LATER,后续机体,LATER AIRFRAME,後続機体
+EVO_NOT_DIRECT,不是当前机的直接进化出口,Not a direct evolution from your current aircraft,現行機からの直接進化先ではありません
+EVO_SIGNATURE_NOTE,没有可用进化时，整备可领取已购专属。,Refit grants a licensed signature when no evolution is available.,進化できない時の整備で購入済み専用スキルを取得できます。
+EVO_BASE_COMPARISON,基础性能 · 对比当前机型,BASE PERFORMANCE · VS CURRENT,基本性能 · 現行機との比較

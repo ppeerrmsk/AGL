@@ -106,7 +106,7 @@ func _ready() -> void:
 	var cap := RenderClock.diagnostic_cap(requested_cap, DisplayServer.screen_get_refresh_rate())
 	if cap < 0:
 		push_error("Tokyo diagnostic frame cap rejected")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	if cap > 0:
 		Engine.max_fps = cap
@@ -128,12 +128,12 @@ func _ready() -> void:
 			_building_renderer.setup(camera)
 		if is_instance_valid(_map_features._tokyo_volume) and _map_features._tokyo_volume.has_method("bind_legacy"):
 			if not _map_features._tokyo_volume.bind_legacy(_building_renderer):
-				get_tree().quit(1)
+				AudioManager.request_quit(1)
 				return
 	# 只给显式诊断组停投影，正式地图及光照材质不变。
 	if OS.get_environment("AGL_TOKYO_BOUNDED_LEGACY_BENCH") == "1":
 		if OS.get_environment("AGL_TOKYO_BENCH_LEGACY") != "1" or not is_instance_valid(_building_renderer):
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_building_renderer.bounded_roof_projection = true
 		_building_renderer.cache_shadow_geometry = OS.get_environment("AGL_TOKYO_SHADOW_CACHE_BENCH") == "1"
@@ -145,11 +145,11 @@ func _ready() -> void:
 	if not static_directory.is_empty():
 		# 该局部候选只测C1路径；不把单档遮罩带入尚未接线的近景巡航。
 		if _tokyo_profile != "tokyo_cells_c1" or not is_instance_valid(_map_features._tokyo_volume):
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_static_shadow = preload("res://scripts/experiments/tokyo_static_shadow.gd").new()
 		if not _static_shadow.bind(_map_features._tokyo_volume, static_directory, 1.28):
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_static_shadow.set_strength(0.5)
 		tree_exiting.connect(_static_shadow.close, CONNECT_ONE_SHOT)
@@ -157,25 +157,25 @@ func _ready() -> void:
 	if OS.get_environment("AGL_TOKYO_DRAW_GEOMETRY_PROBE")=="1":
 		_draw_geometry_probe=preload("res://scripts/tests/tokyo_draw_geometry_probe.gd").new()
 		if not _draw_geometry_probe.setup(_map_features._tokyo_volume):
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		tree_exiting.connect(_draw_geometry_probe.close,CONNECT_ONE_SHOT)
 	var ao_directory := OS.get_environment("AGL_TOKYO_AO")
 	if OS.get_environment("AGL_TOKYO_AO_PRELOAD") != "":
 		if not is_instance_valid(_map_features._tokyo_volume) or not _map_features._tokyo_volume.has_method("bind_legacy"):
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_baked_ao = _map_features._tokyo_volume._preloaded_ao
 		if _baked_ao == null or not _baked_ao.stats.get("preloaded", false):
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 	if not ao_directory.is_empty():
 		if _tokyo_profile != "tokyo_cells_c1" or not is_instance_valid(_map_features._tokyo_volume):
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_baked_ao = preload("res://scripts/experiments/tokyo_baked_ao.gd").new()
 		if not _baked_ao.bind_ao(_map_features._tokyo_volume, ao_directory, 1.28):
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		_baked_ao.strength(0.45)
 	if trace_mode in ["phases", "backend"] and is_instance_valid(_map_features._tokyo_volume):

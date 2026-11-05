@@ -44,7 +44,7 @@
 | `requires` | 选 | 硬件门（`gun/missile/flare/rocket/railgun/laser`…走 `has_equipment_of_kind`），缺硬件不进池 | `is_upgrade_available_for` |
 | `requires_skill` | 选 | 前置技能（列表内**任一** stacks>0 即解锁） | 同上 |
 | `exclusive_to` | 选 | **机型门**：普通技能只有当前 ACE 机型（`_player_profile_id`）在列表内才可进池；签名技用该字段维持 43 条一一映射。已获得的换机重放不查此门（=签名技能“跟人走”） | 同上 |
-| （无字段，靠 `sig_` id 前缀） | — | **签名技识别**：判别式 `SurvivorData.is_signature_upgrade(u)`；普通三轴池、奖励卡和战区奖励池统一排除，已购当前机型许可时只从机场“保留当前机并装备”分支取得；机场洋红框与详情陈列共用映射 | `is_normal_random_candidate` / `signature_upgrade_for_aircraft` / `EvolutionUI` / `EvolutionDetailPanel` |
+| （无字段，靠 `sig_` id 前缀） | — | **签名技识别**：判别式 `SurvivorData.is_signature_upgrade(u)`；普通三轴池、奖励卡和战区奖励池统一排除，已购当前机型许可时只从机场“保留当前机并装备”分支取得；机场整备卡与悬停详情共用映射 | `is_normal_random_candidate` / `signature_upgrade_for_aircraft` / `EvolutionUI` / `EvolutionDetailPanel` |
 | `excludes` | 选 | 互斥：列表内任一已持有 → 本条不再出现（如 cobra ↔ herbst） | 同上 |
 | `evolved` | 选 | true = **不进随机池**，走战区奖励发放（获取渠道标记，不是实装模式；字段名是历史遗留，进化链已废） | 池过滤 + `zone_data` 奖励 roll |
 | `scope` | 选 | 归属词汇 v6：`""`=通用全队逐机 / `"ace"`=仅当前操控机（切控迁移）/ `"squad_once"`=队级单实例（不落单机，消费点读账本） | `_distribute_upgrade` / `upgrade_applies_to_machine` |
@@ -262,7 +262,7 @@ skill_flare_aoe_jam · skill_gun_kill_flare_drop · skill_missile_hit_aoe_jam ·
 skill_torpedo_aoe_jam · skill_rocket_homing · skill_evade_missile_overload · skill_flare_overload ·
 overload_duration_4x（`aircraft.apply_status` 覆写乘区）· overload_extended_ammo · overload_to_bloodlust ·
 bloodlust_armor_mobility（physics `_g_buff_mult`+accel / `_apply_armor` DR）· full_hp_kill_perma_hp ·
-jam_self_overload · invasion_algorithm（JAM→MQ-109～112 坠毁）· flee（新 FEAR→普通载人机撤退）·
+jam_self_overload · invasion_algorithm（队级状态；`on_jam_target_hit` 仅处决本次命中的 MQ-109～112）· flee（新 FEAR→普通载人机撤退）·
 stasis（导弹直伤→2km SLOW）· mental_confusion（新 FEAR→浪费 flare/导弹）·
 ratatat（BLOODLUST 中机炮有效射程/锥/间隔）· storm_i / storm_ii（AfterburnerCharge 实耗/免费充放）·
 fire_control_saturation（当前王牌五锁上升沿→OVERLOAD；20s 单局 CD；状态期间有效锁数 +2）·

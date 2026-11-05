@@ -238,7 +238,7 @@ func _capture_sequence() -> void:
 					relief_failed = await _save_view("relief_light_%s_%d_%s" % [
 						area.name, int(zoom_value * 100), "before" if contrast == 1.0 else "after"]) or relief_failed
 		print("[Relief light QA] pairs=8 failed=", relief_failed, " FPS_NOT_MEASURED")
-		get_tree().quit(1 if relief_failed else 0)
+		AudioManager.request_quit(1 if relief_failed else 0)
 		return
 	if OS.get_environment("AGL_VOLUME_CROSSING_QA") == "1":
 		await _capture_crossings()
@@ -256,7 +256,7 @@ func _capture_sequence() -> void:
 			has_coverage_uniform = has_coverage_uniform or (parameter.name == "watercourse_coverage_enabled" and parameter.type == TYPE_BOOL)
 		if not has_coverage_uniform:
 			push_error("Water coverage QA refuses a shader without the actual switch")
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		for area: Dictionary in [{"name": "bend", "point": Vector2(-10100, 10100)},
 			{"name": "upstream", "point": Vector2(-14914.4116, 9001.04241)},
@@ -275,7 +275,7 @@ func _capture_sequence() -> void:
 		# 未覆盖的uniform读回Nil；恢复Nil即恢复shader默认值，不能强转bool。
 		water_material.set_shader_parameter("watercourse_coverage_enabled", coverage_value)
 		print("[Water coverage QA] same geometry and ink, MSAA=", get_viewport().msaa_3d, " FPS_NOT_MEASURED")
-		get_tree().quit(1 if coverage_failed else 0)
+		AudioManager.request_quit(1 if coverage_failed else 0)
 		return
 	if OS.get_environment("AGL_VOLUME_WEST_WATER_QA") == "1":
 		var water_failed := false
@@ -285,7 +285,7 @@ func _capture_sequence() -> void:
 			for zoom_value: float in [0.26, 0.65, 1.30]:
 				_set_play_map_view(area.point, zoom_value)
 				water_failed = await _save_view("west_water_%s_%d" % [area.name, int(zoom_value * 100)]) or water_failed
-		get_tree().quit(1 if water_failed else 0)
+		AudioManager.request_quit(1 if water_failed else 0)
 		return
 	if OS.get_environment("AGL_VOLUME_ROAD_JOIN_QA") == "1":
 		var join_failed := false
@@ -302,7 +302,7 @@ func _capture_sequence() -> void:
 					road_node.mesh = new_packet.line_mesh if enabled else old_packet.line_mesh
 					join_failed = await _save_view("road_join_%s_%d_%s" % [area.name, int(zoom_value * 100), "after" if enabled else "before"]) or join_failed
 		road_node.mesh = original_mesh
-		get_tree().quit(1 if join_failed else 0)
+		AudioManager.request_quit(1 if join_failed else 0)
 		return
 	if OS.get_environment("AGL_VOLUME_RAIL_LOD_QA") == "1":
 		await _capture_rail_lod()
@@ -407,7 +407,7 @@ func _capture_sequence() -> void:
 	if result == OK:
 		result = exporter.write_to_filesystem(state, "res://bench/results/mother_goose_technical_proxy.glb")
 	print("[Volume lab] editable glTF export result=%d (no gameplay attached)" % result)
-	get_tree().quit(1 if failed or result != OK else 0)
+	AudioManager.request_quit(1 if failed or result != OK else 0)
 
 
 func _capture_crossings() -> void:
@@ -426,7 +426,7 @@ func _capture_crossings() -> void:
 				_set_play_map_view(area.point,zoom_value)
 				failed = await _save_view("crossing_%s_%d_%s" % [area.name,int(zoom_value*100),"new" if enabled else "old"]) or failed
 	node.mesh = current
-	get_tree().quit(1 if failed else 0)
+	AudioManager.request_quit(1 if failed else 0)
 
 
 func _capture_rail_lod() -> void:
@@ -455,7 +455,7 @@ func _capture_rail_lod() -> void:
 		report.store_string(JSON.stringify({"rows": rows, "failed": failed, "fps_measured": false}, "\t"))
 		report.close()
 	print("[Rail LOD QA] rows=", rows.size(), " failed=", failed, " FPS_NOT_MEASURED")
-	get_tree().quit(1 if failed else 0)
+	AudioManager.request_quit(1 if failed else 0)
 
 
 func _capture_cover_lod() -> void:
@@ -467,7 +467,7 @@ func _capture_cover_lod() -> void:
 	var pixels_per_zoom: float = _satellite_ground.debug_state().cover_lod_error_px / 0.26
 	if not is_finite(pixels_per_zoom) or pixels_per_zoom <= 0:
 		push_error("cover LOD QA requires a live tilted orthographic camera")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 	# 按实际输出换算临界缩放，窗口缩放后也必须真正跨过enter/exit两条线。
 	for zoom_value: float in [0.26, 0.65, 0.205 / pixels_per_zoom, 0.19 / pixels_per_zoom, 0.145 / pixels_per_zoom, 0.17 / pixels_per_zoom]:
@@ -500,7 +500,7 @@ func _capture_cover_lod() -> void:
 			"forced_pairs": true, "automatic_switches": "includes forced QA swaps; not a performance counter"}, "\t"))
 		report.close()
 	print("[Cover LOD QA] rows=", rows.size(), " failed=", failed, " FPS_NOT_MEASURED")
-	get_tree().quit(1 if failed else 0)
+	AudioManager.request_quit(1 if failed else 0)
 
 
 func _save_view(suffix: String) -> bool:

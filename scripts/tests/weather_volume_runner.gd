@@ -5,4 +5,4 @@ func _ready() -> void:
 
 func _run() -> void:
 	var failures: int = await preload("res://scripts/tests/weather_volume_lifecycle_case.gd").new().run(self)
-	get_tree().quit(1 if failures > 0 else 0)
+	AudioManager.request_quit(1 if failures > 0 else 0)

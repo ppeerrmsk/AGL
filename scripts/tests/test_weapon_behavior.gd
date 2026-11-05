@@ -27,6 +27,8 @@ func run() -> void:
 	_test_gunship_squad_ground_volley()
 	_test_gun_target_ahead_guard()
 	_test_prelaunch_tracks_launch_solution()
+	_test_turning_launch_window()
+	_test_launch_window_guards()
 	_test_crank_no_side_flip()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 	print("════════════════════════════════\n")
@@ -617,3 +619,133 @@ static func _angle_diff(a: float, b: float) -> float:
 	if d < 0:
 		d += TAU
 	return d - PI
+
+
+## 日志 20261031_224050 的同向盘旋：283/443m/s、79/83°，目标在左前约 10°。
+## 走真实 planner、滚转/航向/位移与 update_missile，验证出弹而非只看许可位。
+func _test_turning_launch_window() -> void:
+	var baseline := _run_turning_launch(false, true)
+	var fixed := _run_turning_launch(true, true)
+	var sarh := _run_turning_launch(true, false)
+	_check("同向盘旋旧决策持续拒射", float(baseline["first_fire"]) < 0.0,
+		"8s first=%.3f min_bank=%.1f" % [baseline["first_fire"], baseline["min_bank"]])
+	_check("同向盘旋收坡后真实出弹", float(fixed["first_fire"]) >= 0.0 \
+		and float(fixed["first_fire"]) < 3.0 and int(fixed["remaining"]) == 1,
+		"first=%.3fs bank=%.1f" % [fixed["first_fire"], fixed["min_bank"]])
+	_check("非FAF仍经滚转率门后真实出弹", float(sarh["first_fire"]) >= 0.0 \
+		and float(sarh["first_fire"]) < 3.0 and int(sarh["remaining"]) == 1,
+		"first=%.3fs bank=%.1f" % [sarh["first_fire"], sarh["min_bank"]])
+
+
+func _launch_window_case(is_faf: bool = true) -> Dictionary:
+	var root := Node2D.new()
+	var mm := MissileManager.new()
+	root.add_child(mm)
+	var ac := Aircraft.new()
+	ac.params = load("res://resources/player/player_f14.tres").duplicate(true)
+	ac.params.combat.missile_skill = 0.85
+	ac.params.combat.missile_skill_jitter = 0.10
+	ac.params.missile.fire_and_forget = is_faf
+	ac.team = CombatUnit.TEAM_PLAYER
+	ac.speed = 283.0
+	ac.heading = 0.0
+	ac.bank_angle = deg_to_rad(79.0)
+	ac.altitude = 7610.0
+	ac.target_altitude = ac.altitude
+	ac.flat_altitude = true
+	ac.g_load = 1.0 / cos(ac.bank_angle)
+	ac.fuel = 9999.0
+	ac.ammo = 156
+	ac.missiles_remaining = 2
+	ac.use_tactical_preference = true
+	ac.use_tactical_planner = true
+	ac.missile_auto_fire = true
+	ac.weapon_mode = Aircraft.WeaponMode.MISSILE
+	ac.missile_manager = mm
+	root.add_child(ac)
+	var tgt := Aircraft.new()
+	tgt.params = ac.params.duplicate(true)
+	tgt.team = CombatUnit.TEAM_HOSTILE
+	tgt.hp = 45.0
+	tgt.speed = 443.0
+	tgt.heading = deg_to_rad(40.0)
+	tgt.altitude = 9990.0
+	var omega := CombatUnit.GRAVITY * tan(ac.bank_angle) / ac.speed
+	tgt.bank_angle = atan(omega * tgt.speed / CombatUnit.GRAVITY)
+	tgt.g_load = 1.0 / cos(tgt.bank_angle)
+	var own_radius := ac.speed / omega
+	var target_radius := tgt.speed / omega
+	tgt.position = Vector2(own_radius - target_radius * cos(tgt.heading),
+		-target_radius * sin(tgt.heading)) * CombatUnit.PIXELS_PER_METER
+	root.add_child(tgt)
+	ac.combat_target = tgt
+	ac.radar_targets[tgt] = ac.params.lock_time + 0.3
+	ac._turn_rate_filt = omega
+	ac._los_rate_filt = omega
+	ac._prev_bank_for_rate = ac.bank_angle
+	return {"root": root, "ac": ac, "target": tgt, "manager": mm}
+
+
+func _run_turning_launch(use_window: bool, is_faf: bool) -> Dictionary:
+	var c := _launch_window_case(is_faf)
+	var ac: Aircraft = c.ac
+	var tgt: Aircraft = c.target
+	var out := {"first_fire": -1.0, "min_bank": 90.0, "remaining": 2}
+	var previous_clock := Situation.sim_time_override
+	const DT := 1.0 / 60.0
+	for frame in range(480):
+		Situation.sim_time_override = float(frame) * DT
+		# 玩家正式 60Hz 入口，包含 intent 滞回、计划提交和控制仲裁。
+		ac._run_tactical_planner_if_enabled()
+		if not use_window:
+			# A/B 只关闭本次新增姿态建议，其余正式追击和武器门完全相同。
+			ac._plan_bank_limit_rad = -1.0
+		ac._resolve_intents(DT)
+		AircraftPhysics.update_target_heading(ac)
+		AircraftPhysics.update_bank(ac, DT)
+		AircraftPhysics.update_heading(ac, DT)
+		AircraftPhysics.update_speed(ac, DT)
+		AircraftPhysics.update_g_load(ac)
+		AircraftPhysics.apply_movement(ac, DT)
+		AircraftPhysics.update_heading(tgt, DT)
+		AircraftPhysics.apply_movement(tgt, DT)
+		if ac.is_in_radar_cone(tgt.global_position):
+			ac.radar_targets[tgt] = float(ac.radar_targets.get(tgt, 0.0)) + DT
+		else:
+			ac.radar_targets.erase(tgt)
+		out["min_bank"] = minf(float(out["min_bank"]), absf(rad_to_deg(ac.bank_angle)))
+		AircraftWeapons.update_missile(ac, DT)
+		if c.manager.get_child_count() > 0:
+			out["first_fire"] = float(frame + 1) * DT
+			break
+	out["remaining"] = ac.missiles_remaining
+	Situation.sim_time_override = previous_clock
+	c.root.free()
+	return out
+
+
+func _test_launch_window_guards() -> void:
+	for condition in ["ready", "unlocked", "off_cone", "empty", "cooldown", "reload", "jam", "evade", "gun", "support", "ai"]:
+		var c := _launch_window_case()
+		var ac: Aircraft = c.ac
+		match condition:
+			"unlocked": ac.radar_targets.clear()
+			"off_cone": ac.heading = PI
+			"empty": ac.missiles_remaining = 0
+			"cooldown": ac._missile_cooldown = 2.0
+			"reload": ac._missile_reload_active = true
+			"jam": ac.status_jam_active = true
+			"evade": ac.evasion_mode = true
+			"gun": ac.weapon_preference = Aircraft.WeaponPreference.PREFER_GUN
+			"support": ac._crank_timer = 1.0
+			"ai": ac.use_tactical_preference = false
+		var s := Situation.from_aircraft(ac)
+		var plan := TacticalPlanner.plan(s)
+		_check("发射收坡边界 " + condition,
+			(plan.bank_limit_deg > 0.0) == (condition == "ready"),
+			"cap=%.1f intent=%s" % [plan.bank_limit_deg, TacticalPlan.intent_name(plan.intent)])
+		if condition == "ready":
+			_check("收坡不篡改高坡度拒射门", not AircraftWeapons._has_stable_launch_window(ac, c.target, 0.85))
+			var waypoint := BfmIntent.waypoint_move(s, Vector2(1200.0, -500.0))
+			_check("航点不被导弹收坡接管", TacticalPlanner._apply_missile_launch_window(s, waypoint).bank_limit_deg < 0.0)
+		c.root.free()

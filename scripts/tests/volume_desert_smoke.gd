@@ -72,7 +72,7 @@ func run(mode: Node) -> void:
 	_key(KEY_F8)
 	if not await _wait_for_scene_release(previous):
 		_check(false, "desert F8 releases scene within six seconds")
-		tree.quit(1)
+		AudioManager.request_quit(1)
 		return
 	await tree.process_frame
 	mode = tree.current_scene
@@ -88,4 +88,4 @@ func run(mode: Node) -> void:
 	_check(tree.current_scene.scene_file_path == "res://scenes/main_menu.tscn" and not tree.paused,
 		"quit restores unpaused main menu")
 	print("[Volume desert smoke] pass=%d fail=%d; entry/input/lifecycle only, NOT full run or FPS acceptance" % [_pass, _fail])
-	tree.quit(0 if _fail == 0 else 1)
+	AudioManager.request_quit(0 if _fail == 0 else 1)

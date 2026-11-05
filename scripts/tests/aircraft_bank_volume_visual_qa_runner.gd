@@ -21,7 +21,7 @@ func _ready() -> void:
 	DisplayServer.window_set_size(Vector2i(1920, 1080))
 	_build_background()
 	if not _build_matrix():
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 
 	for _frame in range(6):
@@ -35,7 +35,7 @@ func _ready() -> void:
 	var report_error := _write_perf_report(flat_result, volume_result)
 	print("[aircraft_bank_volume_visual] screenshot=%s err=%d flat=%s volume=%s report_err=%d" % [
 		screenshot_path, screenshot_error, str(flat_result), str(volume_result), report_error])
-	get_tree().quit(0 if screenshot_error == OK and report_error == OK else 1)
+	AudioManager.request_quit(0 if screenshot_error == OK and report_error == OK else 1)
 
 
 func _build_background() -> void:

@@ -128,13 +128,13 @@ func _capture_sequence() -> void:
 	file.store_string(JSON.stringify({"status": "fixed-view cell LOD candidate; synchronous observation only, no combat performance claim", "failed": failed, "captures": captures}, "\t"))
 	file.close()
 	print("[Tokyo cells Visual] captures=", captures.size(), " fail=", failed)
-	get_tree().quit(1 if failed else 0)
+	AudioManager.request_quit(1 if failed else 0)
 
 
 func _capture_sample() -> void:
 	if not OS.get_environment("AGL_TOKYO_REGION_SURFACE_AO").is_empty():
 		var code: int = await load("res://scripts/tests/tokyo_region_surface_review.gd").new().run(self)
-		get_tree().quit(code)
+		AudioManager.request_quit(code)
 		return
 	var failed := false
 	var captures: Array[Dictionary] = []
@@ -147,7 +147,7 @@ func _capture_sample() -> void:
 	poses.append({"id": "south", "center": Vector2(bounds.get_center().x, bounds.end.y - 120.0), "zoom": 1.95})
 	if OS.get_environment("AGL_TOKYO_NORTH_SOURCE_REVIEW") == "1":
 		if FileAccess.get_sha256(OS.get_environment("AGL_TOKYO_REGION_SAMPLE_INDEX")) not in ["199e256163dc145b447f3f8d8fb3e46540369ada124ba4d786d8fcfd520658c6", "7d04ded67f8d9c5894819b4239b697cbce508ebadcd154b4cc70c80dfcee6578"]:
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		poses.clear()
 		for site: Dictionary in [{"id": "depot", "center": Vector2(-7716.45, -4410.07)}, {"id": "resthouse", "center": Vector2(-7077.05, -3964.37)}]:
@@ -155,7 +155,7 @@ func _capture_sample() -> void:
 				poses.append({"id": "%s_%03d" % [site.id, roundi(zoom_value * 100)], "center": site.center, "zoom": zoom_value})
 	if OS.get_environment("AGL_TOKYO_RIGHT_SOURCE_REVIEW") == "1":
 		if FileAccess.get_sha256(OS.get_environment("AGL_TOKYO_REGION_SAMPLE_INDEX")) != "4fa67221657f9e0486f36c01ae1954a5e96c1f04856598ba91a54d181975ed3b":
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 		poses.clear()
 		# 每个实际体积重叠独立定位；保留原生/瓦片/恢复三张，不据面积告警删楼。
@@ -181,4 +181,4 @@ func _capture_sample() -> void:
 			"status": "independent source baseline; not current gameplay compositor, streaming or performance acceptance"}))
 		file.close()
 	print("[Tokyo regional sample Visual] captures=", captures.size(), " fail=", failed)
-	get_tree().quit(1 if failed else 0)
+	AudioManager.request_quit(1 if failed else 0)

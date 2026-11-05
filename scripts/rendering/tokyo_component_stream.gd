@@ -18,22 +18,38 @@ var _grid_subsets: Dictionary={}
 var _grid_subset_kept: Dictionary={}
 
 
+func _retirement_data() -> Array:
+	var values: Array=super._retirement_data()
+	values.append_array([_logical,_expanded_paths])
+	return values
+
+
 func configure(owner_node: Node, descriptors: Dictionary) -> void:
-	_logical = descriptors.duplicate()
+	_configure_layout(owner_node,prepare_layout(descriptors))
+
+
+static func prepare_layout(descriptors: Dictionary) -> Dictionary:
+	# 只生成数据索引，可在独占后台任务中完成；不创建节点或发起资源请求。
+	var expanded := {}
+	var physical := {}
+	for path: String in descriptors:
+		var parts: Dictionary=descriptors[path].get("components",{path:descriptors[path]})
+		expanded[path]=PackedStringArray(parts.keys())
+		for key: String in parts:
+			assert(not physical.has(key) or physical[key]==parts[key],"component path identity conflict")
+			physical[key]=parts[key]
+	return {"logical":descriptors.duplicate(),"expanded":expanded,"physical":physical}
+
+
+func _configure_layout(owner_node: Node, layout: Dictionary) -> void:
+	_logical=layout.logical
 	_grid_subsets.clear();_grid_subset_kept.clear()
-	_expanded_paths.clear()
+	_expanded_paths=layout.expanded
 	_last_logical_wanted.clear();_last_logical_pins.clear()
 	_last_physical_wanted.clear();_last_physical_pins.clear()
 	_fixed_snapshot.clear();_fixed_logical.clear();_fixed_physical.clear()
 	_fixed_physical_paths.clear()
-	var physical: Dictionary = {}
-	for path: String in descriptors:
-		var parts: Dictionary = descriptors[path].get("components", {path: descriptors[path]})
-		_expanded_paths[path]=PackedStringArray(parts.keys())
-		for key: String in parts:
-			assert(not physical.has(key) or physical[key] == parts[key], "component path identity conflict")
-			physical[key] = parts[key]
-	super.configure(owner_node, physical)
+	super.configure(owner_node,layout.physical)
 
 
 func request(wanted: PackedStringArray, pins: PackedStringArray) -> void:

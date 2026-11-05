@@ -89,6 +89,28 @@ func ground(binding: Dictionary, native: RefCounted) -> Dictionary:
 	return result
 
 
+static func relocated_coverage(data: Dictionary, old_sha: String, new_sha: String, paths: Dictionary) -> Dictionary:
+	if not Contract.sha(old_sha) or not Contract.sha(new_sha) or data.get("partition_sha256")!=old_sha: return {}
+	var mapping := paths.duplicate()
+	mapping[old_sha]=new_sha
+	if not Paths.reversible(data,mapping): return {}
+	var moved: Dictionary=Paths.rewrite(data,mapping)
+	for path: String in moved.get("pages",{}):
+		if not path.begins_with(new_sha+":") or moved.pages[path].identity.get("partition")!=new_sha: return {}
+	return moved
+
+
+func formal_coverage(binding: Dictionary, old_partition: Dictionary, new_partition: Dictionary, index: int) -> Dictionary:
+	var data := preload("res://scripts/rendering/tokyo_partition_coverage.gd").read(binding)
+	var moved := relocated_coverage(data,old_partition.sha256,new_partition.sha256,relocated_paths)
+	if moved.is_empty(): return {}
+	# expected_binding 只记离线逐面证明的来源；运行时仅消费本文件内的已认证依赖。
+	var relative := "formal_coverage_%02d.bin"%index
+	var path := output.path_join(relative)
+	if not Values.save_values(path,moved): return {}
+	return record(path,relative)
+
+
 func build(input: Dictionary, digest: String) -> int:
 	var package := Override.json_binding(input.get("incremental_package"))
 	var version: String=input.get("version","")
@@ -119,6 +141,10 @@ func build(input: Dictionary, digest: String) -> int:
 		var evidence: Dictionary=old_proof.rows[index].duplicate(true)
 		# 导出原网格只是制作时的辅助输出，不是运行时依赖。
 		evidence.erase("exports")
+		if evidence.has("formal_coverage"):
+			var covered_formal := formal_coverage(evidence.formal_coverage,request.partition,packed,index)
+			if covered_formal.is_empty(): return 1
+			evidence.formal_coverage=covered_formal
 		rows.append(evidence)
 	var attachment := json("attachments.json",{"attachments":requests,"migration_source_sha256":prior.input.sha256})
 	if attachment.is_empty(): return 1
@@ -126,19 +152,23 @@ func build(input: Dictionary, digest: String) -> int:
 		"rows":rows,"migration_source_sha256":prior.proof.sha256,"runtime_integrated":false})
 	if proof.is_empty(): return 1
 	package.native.partition_override={"input":attachment,"proof":proof}
+	for flag: String in ["preserve_source_roots","allow_lossless_alternatives"]:
+		if prior.get(flag,false): package.native.partition_override[flag]=true
 	if package.native.has("ground_override"):
 		var migrated_ground := ground(package.native.ground_override,native)
 		if migrated_ground.is_empty(): return 1
 		package.native.ground_override=migrated_ground
-	var recipe := asset(package.get("middle_massing_recipe",{}),"json")
-	if recipe.is_empty(): return 1
-	package.middle_massing_recipe=recipe
+	var recipe: Dictionary={}
+	if package.has("middle_massing_recipe"):
+		recipe=asset(package.middle_massing_recipe,"json")
+		if recipe.is_empty(): return 1
+		package.middle_massing_recipe=recipe
 	var changed := 0
 	for index in package.catalogs.size():
 		var binding: Dictionary=package.catalogs[index]
 		if String(binding.path).begins_with("res://resources/maps/tokyo_playable/m20/"): continue
 		var data := Override.json_binding(binding)
-		if data.is_empty() or not data.has("middle_massing_recipe"): return 1
+		if data.is_empty() or recipe.is_empty() or not data.has("middle_massing_recipe"): return 1
 		# 网格与压缩纹理均复用正式实物；原始制作路径只保留为来源注记，运行时不读取。
 		for page: Dictionary in data.rows:
 			for resource_binding: Dictionary in [page.native_geometry,page.native_texture]:
@@ -160,7 +190,8 @@ func build(input: Dictionary, digest: String) -> int:
 		updated.path=relocated.path;updated.sha256=relocated.sha256
 		package.catalogs[index]=updated
 		changed+=1
-	if changed!=1: return 1
+	# 纯无损原生分区不改HLOD目录；有中景替换时仍只允许一份已验证来源。
+	if changed>1: return 1
 	var covered := json("coverage.json",coverage)
 	if covered.is_empty(): return 1
 	package.coverage=covered

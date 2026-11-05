@@ -117,7 +117,7 @@ func _ready() -> void:
 
 	if sample_count != 12 or seen_routes.size() != 4 or not wave_contract_ok:
 		push_error("four-route airframe wave visual setup incomplete")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 
 	var hit_zone_title := Label.new()
@@ -165,7 +165,7 @@ func _ready() -> void:
 		add_child(zone_label)
 	if not hit_zone_contract_ok:
 		push_error("hit-location visual contract incomplete")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 
 	var crash_title := Label.new()
@@ -222,7 +222,7 @@ func _ready() -> void:
 		and is_equal_approx(crash_alphas.back(), 1.0)
 	if not crash_contract_ok:
 		push_error("crash shrink/fade visual contract incomplete")
-		get_tree().quit(1)
+		AudioManager.request_quit(1)
 		return
 
 	for _frame in range(4):
@@ -232,4 +232,4 @@ func _ready() -> void:
 	var error := get_viewport().get_texture().get_image().save_png(output)
 	print("[hit_flash_visual] large_routes=%d samples=%d hit_zones=%d crash_samples=%d screenshot=%s err=%d" % [
 		seen_routes.size(), sample_count, HIT_ZONE_NAMES.size(), crash_scales.size(), output, error])
-	get_tree().quit(0 if error == OK else 1)
+	AudioManager.request_quit(0 if error == OK else 1)

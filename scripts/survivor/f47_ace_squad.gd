@@ -2,7 +2,7 @@
 ## 继承 AceSquad 基类，定义 F-47 特有的配置和行为：
 ## - 光学隐形
 ## - 协同齐射
-## - KNIGHT×2 / SNIPER×2 的二二角色分工（基类 _apply_role 落地）
+## - KNIGHT×4 / SNIPER×2 的六机角色分工（基类 _apply_role 落地）
 ## - **队级战术状态机** PERCH→BRACKET→PRESS→RESET（spec bosses/wraith-squadron §2.3）
 ##
 ## 战术状态机住在独立模块 [wraith_tactics.gd]，本类只做持有与转发 ——
@@ -54,7 +54,7 @@ func configure_progression(defeat_count: int) -> void:
 	super.configure_progression(defeat_count)
 	fear_cone_config = ProgressionLoadout.fear_cone_for_progression(prior_defeats)
 
-## 保存工厂与 squad 容器；四架 BOSS 本体仍完全走 AceSquad 原生成路径。
+## 保存工厂与 squad 容器；六架 BOSS 本体仍完全走 AceSquad 原生成路径。
 func spawn(scene_root: Node, aircraft_scene: PackedScene, create_enemy_func: Callable,
 		player: Aircraft, bullet_mgr: BulletManager, missile_mgr: MissileManager,
 		squads: Array[Squad]) -> void:
@@ -107,7 +107,7 @@ static func configure_progression_support_aircraft(ac: Aircraft, index: int) -> 
 	if ac.has_meta(&"lock_immune_override"):
 		ac.remove_meta(&"lock_immune_override")
 
-## 演出结束、正式接战时才生成：因此两架支援机不会混进 Wraith 四机登场分镜。
+## 演出结束、正式接战时才生成：因此两架支援机不会混进 Wraith 六机登场分镜。
 func engage() -> void:
 	super.engage()
 	if not _progression_support_spawned and support_count_for_progression(prior_defeats) > 0:
@@ -160,7 +160,7 @@ func _spawn_progression_support() -> void:
 		"progression tier 1: %d lockable YF-23 snipers deployed behind Wraith" \
 		% _progression_support.size())
 
-## SEAM-019：可选支援也缓存/追踪玩家，切控时必须和四架 BOSS 本体一起重定向。
+## SEAM-019：可选支援也缓存/追踪玩家，切控时必须和六架 BOSS 本体一起重定向。
 func set_player_ref(p: Aircraft) -> void:
 	if p == null or not is_instance_valid(p):
 		return
@@ -172,6 +172,20 @@ func set_player_ref(p: Aircraft) -> void:
 		if ai != null and ai.acquire_target(p, AIController.TargetSource.TS_BOSS,
 				"Wraith progression player redirect"):
 			ai.enter_engage_state()
+
+## Wraith 独立六机编制，避免改变其它王牌小队的默认二二分工。
+func _member_role(i: int) -> int:
+	return AceRole.KNIGHT if i < 4 else AceRole.SNIPER
+
+## 三对展开；正式生成与无演出回退也必须拥有六个互不重叠的机位。
+func _get_formation_offsets(entry_dir: Vector2, lateral_axis: Vector2) -> Array[Vector2]:
+	return [
+		-lateral_axis * 180.0, lateral_axis * 180.0,
+		-entry_dir * 220.0 - lateral_axis * 300.0,
+		-entry_dir * 220.0 + lateral_axis * 300.0,
+		-entry_dir * 440.0 - lateral_axis * 420.0,
+		-entry_dir * 440.0 + lateral_axis * 420.0,
+	]
 
 ## 每架 F-47 的额外配置
 ## F-47 特性：隐身（cloak）+ 协同齐射；不挂 Herbst（J-Turn 已转移到 F-14 Poltergeist）

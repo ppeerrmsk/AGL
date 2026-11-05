@@ -31,11 +31,11 @@ enum BomberFormation { LINE_ABREAST, TRAIL }
 
 const BOMBER_TRAIL_SPACING_PX := 300.0
 const BOMBER_ESCORT_SPACING_M := 220.0
-## 护送任务响应队从轰炸编队后方同向追赶；不能预置到航线前方与边界纪律对冲。
-const BOMBER_PURSUIT_REAR_STANDOFF_PX := 3600.0
-const BOMBER_PURSUIT_LATERAL_PX := 520.0
-const BOMBER_PURSUIT_RANK_SPACING_PX := 180.0
-const BOMBER_PURSUIT_ALONG_SPACING_PX := 240.0
+## 护送任务从前方／侧前方远距迎击，给玩家留下接敌航段。
+const BOMBER_INTERCEPT_STANDOFF_PX := 9000.0
+const BOMBER_INTERCEPT_LATERAL_PX := 520.0
+const BOMBER_INTERCEPT_RANK_SPACING_PX := 180.0
+const BOMBER_INTERCEPT_ALONG_SPACING_PX := 240.0
 const BOMBER_INTERCEPT_FIRE_CONE_DEG := 10.0
 const BOMBER_INTERCEPT_BURST_COUNT := 16
 
@@ -689,9 +689,9 @@ func _update_spawner(delta: float) -> void:
 	if _is_boss_phase():
 		return
 
-	# 玩家正在活跃战区任务里 → 旅途刷怪停摆，留给战区驻守独占
+	# 任务敌军已到玩家附近或正在专属护送 → 留出战斗空间
 	# 用短轮询而非长 interval，任务完成后第一时间恢复节奏
-	if zone_mission and zone_mission.is_player_in_active_mission():
+	if zone_mission and zone_mission.mission_reserves_reinforcements():
 		_spawn_timer = 2.0
 		return
 
@@ -1081,12 +1081,13 @@ func _perimeter_point_normal(t01: float) -> Array:
 ## → 存活者取距锚点最近（入场走廊自然朝集结方向）。全部候选可见（理论上只有镜头能看
 ## 全图时发生）→ 兜底取距玩家最远者。可见性由此从"软约束、8 次失败就放弃"（旧
 ## _pick_safe_spawn_angle 的破绽）升格为结构保证：生成点永远在边界线外。
-func _ingress_spawn_point(anchor: Vector2, ahead_of_player: bool = false) -> Vector2:
+func _ingress_spawn_point(anchor: Vector2, ahead_of_player: bool = false,
+		strategic: bool = false) -> Vector2:
 	var pp := player_aircraft.global_position
 	# 拦截波扇区约束（spec battlefield-tempo-pass §2.1）：候选限玩家 heading ±90° 前半球
 	# （不从身后出兵，玩家看得见来路）；扇区内无合法候选 → 回退全周长；再无 → 距玩家最远兜底
 	var hdg_dir := Vector2(sin(player_aircraft.heading), -cos(player_aircraft.heading))
-	var jitter := randf()
+	var jitter := 0.5 if strategic else randf()
 	var best := Vector2.ZERO
 	var best_d := INF
 	var behind := Vector2.ZERO      # ahead 模式下的全周长回退（扇区外合法候选）
@@ -1104,7 +1105,7 @@ func _ingress_spawn_point(anchor: Vector2, ahead_of_player: bool = false) -> Vec
 			fallback = pt
 		if d_player < SurvivorData.INGRESS_MIN_PLAYER_DIST_PX:
 			continue
-		if _is_pos_visible(pt):
+		if not strategic and _is_pos_visible(pt):
 			continue
 		var d_anchor := pt.distance_to(anchor)
 		if ahead_of_player and hdg_dir.dot((pt - pp).normalized()) <= 0.0:
@@ -2274,32 +2275,27 @@ func spawn_bomber_interceptors(formation_center: Vector2, flight_dir: Vector2,
 	var total_count := 0
 	for group in plan:
 		total_count += maxi(0, int(group.get("count", 0)))
-	var positions := bomber_pursuit_spawn_positions(
-		formation_center, pursuit_dir, total_count)
+	var positions := bomber_intercept_spawn_positions(
+		formation_center, pursuit_dir, total_count, wave_index)
 	var cursor := 0
 	for group in plan:
 		var type_idx := int(group.get("type", int(EnemyType.INTERCEPTOR)))
 		if type_idx < 0 or type_idx >= EnemyType.size():
 			continue
 		var etype := type_idx as EnemyType
-		var assignment := String(group.get("assignment", "bomber"))
+		var assignment := "bomber"
 		var group_count := maxi(0, int(group.get("count", 0)))
 		var cutoff_start := ceili(float(group_count) * 2.0 / 3.0)
 		for group_index in range(group_count):
 			if cursor >= positions.size():
 				break
-			var target: Aircraft = null
-			if assignment == "escort" and not escorts.is_empty():
-				var escort := escorts[group_index % escorts.size()]
-				if is_instance_valid(escort) and not escort.is_destroyed:
-					target = escort
-			if target == null:
-				target = bombers[bombers.size() - 1] \
-					if group_index >= cutoff_start else bombers[0]
+			var target := bombers[bombers.size() - 1] \
+				if group_index >= cutoff_start else bombers[0]
 			var spawn_pos := positions[cursor]
 			cursor += 1
-			# 初始姿态与轰炸编队同向；directive 随后从后方建立真实追击解。
-			var heading_deg := rad_to_deg(atan2(pursuit_dir.x, -pursuit_dir.y))
+			# 从远端朝轰炸编队接近，初始姿态与来袭方位一致。
+			var inbound := (formation_center - spawn_pos).normalized()
+			var heading_deg := rad_to_deg(atan2(inbound.x, -inbound.y))
 			var interceptor := _create_enemy(etype, spawn_pos, heading_deg)
 			interceptor.set_meta("bomber_interceptor", true)
 			interceptor.set_meta("bomber_intercept_assignment", assignment)
@@ -2308,8 +2304,8 @@ func spawn_bomber_interceptors(formation_center: Vector2, flight_dir: Vector2,
 			interceptor.set_target_tier(CombatUnit.AltitudeTier.HIGH)
 			interceptor.altitude = CombatUnit.TIER_ALTITUDE[CombatUnit.AltitudeTier.HIGH]
 			interceptor.speed = interceptor.params.cruise_speed / 3.6
-			interceptor._fire_cooldown = maxf(interceptor._fire_cooldown, 0.35)
-			interceptor._missile_cooldown = maxf(interceptor._missile_cooldown, 0.35)
+			interceptor._fire_cooldown = INF
+			interceptor._missile_cooldown = INF
 			# 护送任务明确不用火箭：保留正式机炮/导弹，删除任务实例的火箭资源。
 			if interceptor.params != null:
 				interceptor.params.rocket = null
@@ -2333,40 +2329,50 @@ func spawn_bomber_interceptors(formation_center: Vector2, flight_dir: Vector2,
 			assign_bomber_intercept_target(interceptor, target)
 			interceptors.append(interceptor)
 	EventLogger.log_event("BOMBER_MISSION", "HOSTILE_INTERCEPT",
-		"wave=%d spawned=%d bombers=%d escorts=%d rear_standoff=%.0f center=%s" % [
+		"wave=%d spawned=%d bombers=%d escorts=%d standoff=%.0f center=%s" % [
 			wave_index, interceptors.size(), bombers.size(), escorts.size(),
-			BOMBER_PURSUIT_REAR_STANDOFF_PX, formation_center.round()])
+			BOMBER_INTERCEPT_STANDOFF_PX, formation_center.round()])
 	return interceptors
 
-## 轰炸编队后方的两列追击生成位；所有槽位都在实时航向后半平面，越靠后排越迟接近。
-static func bomber_pursuit_spawn_positions(formation_center: Vector2,
-		flight_dir: Vector2, count: int) -> PackedVector2Array:
+## 首批正前方、增援侧前方的两列来袭阵位；后排向远处展开。
+static func bomber_intercept_spawn_positions(formation_center: Vector2,
+		flight_dir: Vector2, count: int, wave_index: int = 0) -> PackedVector2Array:
 	var positions := PackedVector2Array()
 	if formation_center == Vector2.INF or count <= 0:
 		return positions
-	var pursuit_dir := flight_dir.normalized()
-	if pursuit_dir.length_squared() < 0.1:
-		pursuit_dir = Vector2.UP
-	var lateral := Vector2(-pursuit_dir.y, pursuit_dir.x)
-	var pursuit_base := formation_center \
-		- pursuit_dir * BOMBER_PURSUIT_REAR_STANDOFF_PX
+	var approach_axis := flight_dir.normalized()
+	if approach_axis.length_squared() < 0.1:
+		approach_axis = Vector2.UP
+	if wave_index > 0:
+		approach_axis = approach_axis.rotated(deg_to_rad(60.0 if wave_index % 2 == 1 else -60.0))
+	var lateral := Vector2(-approach_axis.y, approach_axis.x)
+	var approach_base := formation_center + approach_axis * BOMBER_INTERCEPT_STANDOFF_PX
 	for i in range(count):
 		var side := -1.0 if i % 2 == 0 else 1.0
 		var rank := float(i >> 1)
-		positions.append(pursuit_base
-			+ lateral * side * (BOMBER_PURSUIT_LATERAL_PX
-				+ rank * BOMBER_PURSUIT_RANK_SPACING_PX)
-			- pursuit_dir * rank * BOMBER_PURSUIT_ALONG_SPACING_PX)
+		positions.append(approach_base
+			+ lateral * side * (BOMBER_INTERCEPT_LATERAL_PX
+				+ rank * BOMBER_INTERCEPT_RANK_SPACING_PX)
+			+ approach_axis * rank * BOMBER_INTERCEPT_ALONG_SPACING_PX)
 	return positions
 
 func assign_bomber_intercept_target(interceptor: Aircraft, target: Aircraft) -> void:
 	if not is_instance_valid(interceptor) or interceptor.is_destroyed \
 			or not is_instance_valid(target) or target.is_destroyed:
 		return
+	# 同拍切换火控，避免父飞机先于 AI 子节点继续向旧轰炸机发射。
 	interceptor.set_meta("bomber_intercept_target", target)
+	interceptor.radar_targets.clear()
+	interceptor.secondary_radar_targets.clear()
+	interceptor.clear_combat_target()
 	var ai := interceptor._get_ai_controller()
 	if ai != null:
+		ai.release_target(AIController.TargetSource.TS_DIRECTIVE, "escort priority changed")
 		ai.set_event_directive(AIDirective.engage_target(target))
+		ai.acquire_target(target, AIController.TargetSource.TS_DIRECTIVE, "escort priority")
+	else:
+		interceptor.set_combat_target(target)
+
 
 func _pick_bomber_ground_target(source_team: int, fallback: Vector2) -> Vector2:
 	var best_pos := fallback

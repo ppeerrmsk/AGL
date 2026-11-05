@@ -163,9 +163,11 @@ func setup(mode: Node, scenario: String, options: Dictionary = {}) -> void:
 		add_child(material_warmup)
 		for key in Airframes.supported_keys():
 			_cache_mesh_route(key)
+			Mounts.prewarm(key)
 			if Airframes.supports_body_lod(key):
 				_cache_mesh_route(BODY_LOD_ROUTE_PREFIX + key)
 				_cache_mesh_route(BODY_LOD2_ROUTE_PREFIX + key)
+		_cache_mesh_route("mount_support")
 		for mount_kind in Mounts.supported_kinds():
 			_cache_mesh_route("mount_" + mount_kind)
 		if _ground_enabled:
@@ -489,7 +491,7 @@ func _process(delta: float) -> void:
 			goose_seen = true
 			if source_rect.has_point(screen_point):
 				goose_visible_frames += 1
-			_sync_goose_mounts(ac, color, show_mount_detail)
+			_sync_goose_mounts(ac, color, show_mount_detail, transform, opacity, anchor_height)
 	if _ground_enabled:
 		_ground_presenter.sync(self, view, canvas, output_pixel_scale)
 	# 只关闭上一帧已活跃但本帧没有提交的批次；预热的其余空批次从不进入热循环。
@@ -587,44 +589,36 @@ static func livery_ratio_for(body_color: Color, wing_color: Color) -> Color:
 		1.0)
 
 
-func _sync_goose_mounts(ac: Aircraft, color: Color, include_detail: bool = true) -> void:
+func _sync_goose_mounts(ac: Aircraft, color: Color, include_detail: bool = true,
+		body_transform: Transform3D = Transform3D.IDENTITY, opacity: float = 1.0, anchor_height: float = AIR_HEIGHT) -> void:
 	var mounts: Array = ac.get_meta(&"mg_mounts", [])
-	# 挂点与机体同用物理插值显示态，不在 tick 间与母机脱节；每机只插值一次。
-	var display_xform := DisplayPacing.display_global_transform(ac)
-	var display_pos := display_xform.origin
-	var display_heading := ac.heading + DisplayPacing.rotation_offset_from(ac, display_xform)
 	for i in mounts.size():
 		var raw: Variant = mounts[i]
 		if typeof(raw) != TYPE_OBJECT or not is_instance_valid(raw) or not (raw is WeaponMount):
 			continue
 		var mount: WeaponMount = raw
-		if mount.destroyed:
+		if mount.destroyed or mount.params == null:
 			continue
-		# 潜在工作量与视觉提交分离；隐藏远景挂点不能伪造调度压力下降。
 		last_mount_workload += 1
 		if not include_detail:
 			continue
 		var kind := "prop" if i < 8 else "vls"
-		var basis := Basis(Vector3.UP, -display_heading)
-		var point := mount.world_position(display_pos, display_heading)
-		var opacity := 1.0
-		if ac.is_destroyed:
-			basis = basis.scaled(Vector3.ONE * ac._destroy_visual_scale)
-			point = display_pos + (point - display_pos) * ac._destroy_visual_scale
-			opacity = ac._destroy_visual_alpha
-		var transform := Transform3D(basis, world_point(point, AIR_HEIGHT + 8.0))
-		_submit(kind, transform, color, Color.TRANSPARENT, opacity)
+		var layout := Mounts.goose_layout(mount.params.local_offset, i < 8)
+		_submit(kind, body_transform * Transform3D(Basis.IDENTITY, layout.position), color,
+			Color.TRANSPARENT, opacity, anchor_height)
+		if layout.has("support"):
+			_submit("mount_support", body_transform * (layout.support as Transform3D), color,
+				Color.TRANSPARENT, opacity, anchor_height)
 		last_live_mounts += 1
 
 
 func _sync_aircraft_mounts(ac: Aircraft, body_transform: Transform3D, airframe_key: String,
 		livery: Color, include_equipment: bool = true, opacity: float = 1.0, anchor_height: float = NAN) -> void:
-	var native_size: Vector2 = _native_sizes.get(airframe_key, Vector2(34.0, 34.0))
 	for mount_kind in Mounts.AIRCRAFT_KINDS:
 		var visible_count := Mounts.visible_count(mount_kind, ac)
 		if visible_count <= 0:
 			continue
-		var slots := Mounts.local_slots(mount_kind, native_size.x, native_size.y)
+		var slots := Mounts.local_slots(mount_kind, airframe_key)
 		last_mount_workload += mini(visible_count, slots.size())
 		if include_equipment:
 			var mount_color := Mounts.state_color(mount_kind, ac, livery)

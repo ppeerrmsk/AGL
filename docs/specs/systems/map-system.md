@@ -3,7 +3,7 @@ id: map-system
 kind: map
 status: done
 schema_version: 1
-spec_version: 10
+spec_version: 11
 owner: design
 depends_on: [map-boundary, map-geography, raster-basemap-streaming]
 reconstruction_complete: false
@@ -152,3 +152,9 @@ reconstruction_complete: false
 | 2026-08-16 | 8 | 遵循全局 UI 双边缘通知规则：底图失败属于临时错误反馈，改由屏幕底部通知通道滑入，不占用顶部紧急信息通道。 |
 | 2026-08-22 | 9 | 用户最终确认三图采用 lossless WebP 瓦片版本：发布与 Debug 统一按 `tile_map_key` 直读 manifest，Tab 复用 Strategic；删除五张旧/正式地图 PNG、`Shift+F8` A/B、PNG 性能场及切换对拍 Debug 页面。外部 UGC PNG 兼容与官方瓦片失败后的矢量兜底保留。 |
 | 2026-08-24 | 10 | 三图统一增加 60km 核心外的 2km 外缘空域：真边界扩为 64km，进入外缘连续 2.5s 后才触发边界决策；相机改为严格内容裁切，AI 边界纪律同步认新真边界。 |
+
+### 2026-11-01 城市地面部署修复
+
+普通地面单位出生点同时校验楼体占地及既有陆地/水面规则。东京占地由当前256片近景的两层楼体三角形投影与正式游戏楼足迹生成2px位图，独立于镜头/LOD驻留，保留来源摘要；查询扩一格避免取整漏缝，普通车身/炮管净空半径5px。UGC查询该图注入的建筑多边形。运行时只查询局部单元，不逐车扫描全城。
+
+SPG椭圆路径以不超过4px的弧长上界采样，并增加2px余量覆盖样本之间；先尝试完整路径，再缩至1/4，最后在合法位置驻停，之后才沿既有数量降级规则处理确实无解的编成。普通地面移动遇楼停止，禁止穿楼。位图在加载阶段提前读取；导出显式包含该数据。验证结果见本次审计，不能以功能断言代替完整局或严格60FPS。

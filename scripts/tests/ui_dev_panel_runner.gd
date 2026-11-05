@@ -87,7 +87,7 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		get_tree().quit()
+		AudioManager.request_quit()
 
 
 func _exit_tree() -> void:
@@ -133,8 +133,8 @@ func _build_sample_aircraft() -> Aircraft:
 
 func _build_afterburner_charge() -> AfterburnerCharge:
 	var result := AfterburnerCharge.new()
-	result.active = true
 	result.charge = AfterburnerCharge.CHARGE_MAX * 0.64
+	result.activate(_sample_aircraft)
 	return result
 
 
@@ -379,4 +379,4 @@ func _save_bench_screenshot(scenario: String) -> void:
 	var path := "res://bench/results/%s.png" % scenario
 	var err := get_viewport().get_texture().get_image().save_png(path)
 	print("[%s] screenshot=%s err=%d" % [scenario, path, err])
-	get_tree().quit(0 if err == OK else 1)
+	AudioManager.request_quit(0 if err == OK else 1)

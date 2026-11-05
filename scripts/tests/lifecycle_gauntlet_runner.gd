@@ -61,6 +61,10 @@ func _ready() -> void:
 
 func _run() -> void:
 	await get_tree().process_frame
+	_fail += await preload("res://scripts/tests/dock_decision_case.gd").new().run(self)
+	_fail += await preload("res://scripts/tests/tactical_canvas_case.gd").run(self)
+	_fail += await preload("res://scripts/tests/unit_status_case.gd").new().run(self)
+	_fail += await preload("res://scripts/tests/squad_ownership_case.gd").run(self)
 	_explosion_host = FakeExplosionHost.new()
 	_explosion_host.add_to_group("explosion_vfx")
 	add_child(_explosion_host)
@@ -70,12 +74,14 @@ func _run() -> void:
 	_fail += await preload("res://scripts/tests/orion_lifecycle_case.gd").new().run(self)
 	_fail += await preload("res://scripts/tests/fear_cone_case.gd").new().run(self)
 	_fail += await preload("res://scripts/tests/debug_spawn_lifecycle_case.gd").run(self)
+	_fail += await preload("res://scripts/tests/invasion_algorithm_case.gd").run(self)
 	var bloodlust_case: RefCounted = load("res://scripts/tests/bloodlust_head_on_case.gd").new()
 	_fail += await bloodlust_case.run(self)
 	var gun_case: RefCounted = load("res://scripts/tests/gun_evasion_lifecycle_case.gd").new()
 	_fail += await gun_case.run(self)
 	await _test_bomber_cache_after_controller_free()
 	await _test_bomber_retire_with_freed_members()
+	await _test_bomber_priority_after_player_death()
 	await _test_zone_completion_after_deferred_free()
 	await _test_conquered_garrison_retire_after_offscreen_grace()
 	await _test_retired_ground_after_real_damage()
@@ -107,8 +113,10 @@ func _run() -> void:
 	_fail += await war_case.run_checks()
 	war_case.queue_free()
 	await get_tree().process_frame
+	# 退出音频门必须最后运行；终态后拒绝新播放，不能恢复为可游玩状态。
+	_fail += await preload("res://scripts/tests/audio_shutdown_case.gd").run(self)
 	print("[LifecycleGauntlet] result pass=%d fail=%d" % [_pass, _fail])
-	get_tree().quit(0 if _fail == 0 else 1)
+	AudioManager.request_quit(0 if _fail == 0 else 1)
 
 func _new_zone_mission() -> ZoneMission:
 	var mission := ZoneMission.new()
@@ -202,6 +210,91 @@ func _test_bomber_retire_with_freed_members() -> void:
 	_check(not mission._bomber_escort_runs.has(&"A"),
 		"成功/失败/取消共用退役入口能清理全部已释放成员")
 	mission.free()
+
+func _test_bomber_priority_after_player_death() -> void:
+	# 发射仍经过正式攻击名额门，但不继承前序场景尚未到期的攻击租约。
+	var previous_director := EncounterDirector._active
+	var director := EncounterDirector.new(null)
+	var mission := _new_zone_mission()
+	var spawner := SurvivorSpawner.new()
+	var controller := _new_controller()
+	var bomber := _new_aircraft_for_destruction()
+	var backup := _new_aircraft_for_destruction()
+	bomber.params = load("res://resources/friendly_b1b.tres").duplicate(true)
+	backup.params = bomber.params.duplicate(true)
+	bomber.team = CombatUnit.TEAM_ALLY
+	backup.team = CombatUnit.TEAM_ALLY
+	bomber.position = Vector2(0, -1000)
+	backup.position = Vector2(300, -1000)
+	var player := _new_aircraft_for_destruction()
+	player.team = CombatUnit.TEAM_PLAYER
+	player.position = Vector2(0, -1200)
+	var shooter := _new_aircraft_for_destruction()
+	shooter.team = CombatUnit.TEAM_HOSTILE
+	shooter.params = load("res://resources/enemy_mirage3.tres").duplicate(true)
+	shooter.params.missile = load("res://resources/weapons/enemy_missile_v4.tres")
+	shooter.missiles_remaining = 4
+	shooter.weapon_mode = Aircraft.WeaponMode.MISSILE
+	shooter.position = Vector2.ZERO
+	shooter.heading = 0.0
+	shooter.bank_angle = 0.0
+	var ai := AIController.new()
+	ai.set_physics_process(false)
+	shooter.add_child(ai)
+	ai.aircraft = shooter
+	shooter._ai_ref = ai
+	var manager := MissileManager.new()
+	manager.set_physics_process(false)
+	add_child(manager)
+	shooter.missile_manager = manager
+	var route := PackedVector2Array([bomber.position, Vector2(0, -5000), Vector2(0, -6000)])
+	controller.setup([bomber, backup], [route, route], route[2], null)
+	# 保持三机同高，真实武器检查使用正常包线／锁定／稳定窗口。
+	player.altitude = bomber.altitude
+	backup.altitude = bomber.altitude
+	shooter.altitude = bomber.altitude
+	mission._spawner = spawner
+	mission._player = player
+	var run := {"interceptors": [shooter]}
+	spawner.assign_bomber_intercept_target(shooter, bomber)
+	shooter.radar_targets[bomber] = 10.0
+	mission._retarget_bomber_interceptors(run, controller)
+	shooter.radar_targets[player] = 10.0
+	AircraftWeapons.update_missile(shooter, 0.1)
+	_check(manager.count_active_missiles_at(shooter, player) == 1
+			and manager.count_active_missiles_at(shooter, bomber) == 0,
+		"已锁 B-1B 后玩家近场接敌，正式武器入口真实发射导弹到玩家")
+	var destroyed_signals: Array = []
+	var on_kill := func(_killer: String, _victim: String, _kind: String,
+			_killer_team: int, victim_team: int, _voiced: bool) -> void:
+		if victim_team == CombatUnit.TEAM_PLAYER:
+			destroyed_signals.append(true)
+	EventLogger.kill_recorded.connect(on_kill)
+	player.take_damage(99999.0, shooter, "gun")
+	EventLogger.kill_recorded.disconnect(on_kill)
+	_check(player.is_destroyed and destroyed_signals.size() == 1, "玩家真实致命伤害触发一次死亡信号")
+	player.queue_free()
+	await get_tree().process_frame
+	mission._retarget_bomber_interceptors(run, controller)
+	await get_tree().physics_frame
+	mission._retarget_bomber_interceptors(run, controller)
+	_check(shooter.combat_target == bomber and ai._current_target == bomber
+			and ai._directive.params.get("target") == bomber,
+		"玩家释放并跨下一次缓存刷新后，旧引用清空且重新指向 B-1B")
+	bomber.take_damage(99999.0, shooter, "gun")
+	bomber.queue_free()
+	await get_tree().process_frame
+	mission._retarget_bomber_interceptors(run, controller)
+	_check(shooter.combat_target == backup and shooter.get_meta("bomber_intercept_target") == backup,
+		"B-1B 真实死亡释放后，消费方执行到末尾并改护送目标为幸存机")
+	manager.free()
+	controller.free()
+	mission.free()
+	spawner.free()
+	shooter.free()
+	backup.free()
+	director.shutdown()
+	EncounterDirector._active = previous_director
 
 func _test_zone_completion_after_deferred_free() -> void:
 	var mission := _new_zone_mission()
@@ -308,7 +401,19 @@ func _test_zone_failure_after_deferred_free() -> void:
 	var failures: Array[String] = []
 	mission.mission_failed.connect(func(zone_id: StringName, reason: String) -> void:
 		failures.append("%s:%s" % [zone_id, reason]))
+	mission._flight_plans[&"A"] = {"edge": Vector2.ZERO, "start": 0.0}
 	mission.fail_zone(&"A", "lifecycle_probe")
+	await get_tree().process_frame
+	mission._update_bomber_escort_caches(ZoneMission.BOMBER_ESCORT_CACHE_TICK_S)
+	_check(not mission._flight_plans.has(&"A"), "失败跨帧及缓存 tick 后清空旧航线")
+	mission._flight_plans[&"A"] = {"edge": Vector2.ZERO, "start": 0.0}
+	mission.reset_zone(&"A")
+	await get_tree().process_frame
+	_check(not mission._flight_plans.has(&"A"), "战区重开跨帧后无上一代航线")
+	mission._flight_plans[&"A"] = {"edge": Vector2.ZERO, "start": 0.0}
+	mission.cancel_all_zone_missions()
+	await get_tree().process_frame
+	_check(mission._flight_plans.is_empty(), "取消全部任务后跨帧无战略航线残留")
 	_check(failures == ["A:lifecycle_probe"] \
 			and not mission._bomber_escort_runs.has(&"A"),
 		"失败终态能在对象已释放后完整发信号并清空缓存")
@@ -399,6 +504,12 @@ func _test_ace_music_cleanup_after_deferred_free() -> void:
 	director.mode = mode
 	var event := AceReinforcementEvent.new()
 	event.director = director
+	var owner := AceSupportSquad.new("vulture")
+	var owner_probe: WeakRef = weakref(owner)
+	var tactics := owner._lancer
+	var tactics_probe: WeakRef = weakref(tactics)
+	event._squad = owner
+	owner = null
 	event._begin_ace_battle_music()
 	_check(event._ace_music_started and mode.begin_calls == 1,
 		"王牌血条浮现时只取得一次专属 BGM 所有权")
@@ -409,6 +520,17 @@ func _test_ace_music_cleanup_after_deferred_free() -> void:
 		"取消/清理终态归还 BGM 且所有权清零")
 	event._finish()
 	_check(mode.end_calls == 1, "重复终态不会二次抢回普通歌单")
+	await get_tree().process_frame
+	_check(event._squad == null and owner_probe.get_ref() == null,
+		"王牌事件真实终态释放中队，外部战术引用不会反向保活宿主")
+	tactics.enter()
+	tactics.update(LancerSquadTactics.TICK_S + 0.1)
+	tactics.exit()
+	_check(tactics._squad == null and tactics._alive_members().is_empty(),
+		"宿主释放后跨下一战术 tick，迟到 enter/update/exit 安全完成")
+	tactics = null
+	await get_tree().process_frame
+	_check(tactics_probe.get_ref() == null, "战术最后引用撤销后立即释放，无循环残留")
 
 	var freed_mode: Variant = await _freed(mode)
 	director.mode = freed_mode

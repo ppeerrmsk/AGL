@@ -96,10 +96,10 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 	match event.button_index:
 		MOUSE_BUTTON_WHEEL_UP:
 			if event.pressed:
-				_camera_ctrl.handle_zoom_input(1.0 + CameraController.ZOOM_STEP)
+				_camera_ctrl.handle_zoom_input(CameraController.ZOOM_IN_FACTOR)
 		MOUSE_BUTTON_WHEEL_DOWN:
 			if event.pressed:
-				_camera_ctrl.handle_zoom_input(1.0 - CameraController.ZOOM_STEP)
+				_camera_ctrl.handle_zoom_input(CameraController.ZOOM_OUT_FACTOR)
 		MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				_on_left_click(event.global_position)

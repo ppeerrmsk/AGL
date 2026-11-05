@@ -3,7 +3,7 @@ id: display-pacing
 kind: system
 status: done
 schema_version: 1
-spec_version: 1
+spec_version: 2
 owner: AGL
 depends_on: [systems/combat-entity-volume-prototype]
 reconstruction_complete: true
@@ -82,12 +82,15 @@ display_time_lag       = 插值开 ? (1−f) × time_scale / 60 : 0
 
 尾迹节点自身 `OFF`；导弹批次尾迹的自身 Canvas 不出图，跳过逐帧抵消。
 
-### 3.4 保持 60Hz 的绘制（已评估）
+### 3.4 动态连线与批绘的不同更新节拍
 
-- `BulletManager` 子弹/火箭/空爆弹：每物理步重绘一次的世界坐标批绘，保持模拟真值位置。逐渲染帧重绘成本随
-  弹丸数与帧率线性放大，违背 R1/R6。
-- 飞机 `_draw` 内的目标线、锁定框、预测航迹：在机体本地坐标绘制，随插值机体刚性移动；远端相对误差
-  ≤ (1−f) × 一 tick 的相对位移/旋转。
+- 世界状态覆盖层在相机与三维合成后，统一调度活跃的飞机战术 Canvas 与来袭导弹警告 Canvas。独立 Canvas 关闭引擎插值，使用同帧 `display_global`；源与目标均从同一显示态换算，不能把物理逆变换缓存到插值父机下。
+- 目标线、锁定/任务框、装填提示/战术弹字/匿名目标、编队线、热诱弹和持续武器表现由上述 Canvas 绘制；原机体不重复绘制同一标记。没有覆盖层的独立夹具保留原绘制入口。
+- 预测物理积分仍为 360 步、每渲染帧最多推进 24 步、完成缓存最短间隔 200ms。显示准备从旧预测近端最多 16 段寻找已飞过部分，裁掉前缀后把首点固定到同帧机位，以弧长重采样为 91 点；显示位置和能量采用 `1-exp(-rate*delta)` 平滑。点数变化不再整线重置；箭头采用末端最后一个非退化切线，全退化时不画箭头。
+- `_draw` 只读取准备好的曲线，禁止推进预测或修改平滑状态。位置读数与命中判定继续使用物理真值。
+- 指挥数据链、母鹅指定线/场、雷达和指令高亮读取显示态。屏外箭头使用真实 Canvas 投影，包含相机旋转、offset 与视口变换。
+- ORION 持续光剑的显示起点与航向、双炮预警炮口和未锁定的跟踪方向使用同帧显示态；已锁定方向保持不变。光剑伤害端点、已发射电磁炮和拦截爆点继续消费原物理快照，不回写表现坐标。
+- 静态机体局部图形保留缓存并随父机插值；`BulletManager` 子弹/火箭/空爆弹仍按物理步批绘，尾迹仍按既有 20Hz 采样，不以逐渲染帧重绘所有弹丸换取局部连线修复。
 
 ### 3.5 传送与出生
 
@@ -102,6 +105,7 @@ display_time_lag       = 插值开 ? (1−f) × time_scale / 60 : 0
 
 ## 4. 结构与组成（Structure）
 
+- 活跃标记 `rendering/unit_tactical_canvas.gd`，由 `WorldUnitStatusOverlay` 统一调度；预测显示纯函数 `rendering/prediction_curve.gd`。
 - 静态服务 `DisplayPacing`（无 class_name，消费方 preload）：安装、开关、显示态函数、帧上限读写。
 - 启动接线：表演导演 AutoLoad 的 `_ready` 调用安装（早于任何战斗场景）。
 - 白名单单位：`Aircraft`、`Missile` 各持 `interp_prev_xform` / `interp_prev_tick`。
@@ -122,7 +126,7 @@ display_time_lag       = 插值开 ? (1−f) × time_scale / 60 : 0
 - [x] 性能：消费方每帧每单位一次插值求值（按渲染帧缓存），尾迹每帧一次变换求逆；不新增逐实体全场扫描
 - [x] 文档：本 spec 已登记 _INDEX；script-index / code-index / known-seams（SEAM-053）/ performance-guidelines 已同步
 
-### 5.1 证据记录
+### 5.1 2026-10-18 历史证据记录
 
 测量口径：`tools/frame_probe_motion.py`（玩家呈现位置取插值显示态）。正式局 = `probe_play` 自动驾驶 240s；
 C2 = `tokyo_volume_c2` 36s；均为 Shadow Visual、1600×900 窗口、300Hz VSync、物理补步上限 2，交错运行。
@@ -149,6 +153,10 @@ C2 成本拆分（同代码、交错）：有物理步的帧持平；无物理�
 | E3 Visual | 自动驾驶截帧（插值开/关各 18 帧） | 尾迹/连线/状态栏无脱节 |
 | E4 完整局 | 正式局自动驾驶 240s × 4 | 顿挫消除，帧时无可测差异；人工长局手感未做 |
 
+### 5.2 2026-10-22 二维连线重构
+
+本轮数值验收与 Visual 边界见 [二维呈现审计](../../audits/2026-10-22-2d-presentation.md)。上方 2026-10-18 截帧不能证明旧实现不存在动态脱节，本轮新增源/目标屏幕端点、缩放旋转、预测长度变化和真实伤害后跨帧清理用例。
+
 ## 6. 实现计划（Task Pipeline）
 
 ### 阶段 1 — 插值白名单与显示态
@@ -171,7 +179,7 @@ C2 成本拆分（同代码、交错）：有物理步的帧持平；无物理�
 | 消费方 | `scripts/camera_controller.gd`、`scripts/ui/world_unit_status_overlay.gd`、`scripts/experiments/volume_world_probe.gd`、`scripts/trail_ribbon.gd`、`scripts/survivor/survivor_mode.gd`（bench 巡检镜头） |
 | 启动接线 | `scripts/presentation/presentation_director.gd` |
 | 诊断 | `scripts/diagnostics/frame_probe.gd`、`scripts/diagnostics/frame_probe_autoplay.gd`、`tools/frame_probe_motion.py` |
-| 测试 | `scripts/tests/test_display_pacing.gd`（bench `display_pacing`） |
+| 测试 | `scripts/tests/test_display_pacing.gd`（bench `display_pacing`）、`scripts/tests/test_predicted_path_incremental.gd`、`scripts/tests/tactical_canvas_case.gd`（独立 Visual + lifecycle_gauntlet） |
 | reference 索引 | script-index.md / code-index.md 的对应条目 |
 
 ## 8. 变更记录
@@ -179,3 +187,4 @@ C2 成本拆分（同代码、交错）：有物理步的帧持平；无物理�
 | 日期 | spec_version | 改动 |
 |---|---|---|
 | 2026-10-18 | 1 | 物理插值白名单、视口降级、显示态消费方与按帧缓存、补步上限 2、帧上限；A/B 与回归验收完成 |
+| 2026-10-22 | 2 | 动态标记独立画布、同帧双端点、预测近端裁剪与固定弧长显示；实际画布投影；证据及限制见本轮审计 |

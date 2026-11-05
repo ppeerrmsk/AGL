@@ -24,7 +24,7 @@ func run() -> void:
 	_test_port_water_exclusion()
 	_test_air_zone_reuse_and_retire()
 	_test_live_ally_lookup()
-	_test_artillery_search_matches_legacy()
+	_test_artillery_search_clearance()
 	_test_deferred_artillery_registration()
 	print("──────── 结果：%d 通过 / %d 失败 ────────" % [_pass, _fail])
 
@@ -442,9 +442,9 @@ class NoHeliAtmosphere extends "res://scripts/survivor/zone_atmosphere_combat.gd
 		return null
 
 
-## 分片搜索与原一次性穷举（HEAD 69c6d81 逐字副本）在同一种子下方案逐值相同、局部 RNG 终态相同；
+## 建筑净空修复后，分片与整次搜索方案及局部 RNG 终态仍相同；
 ## 每次只推进一个椭圆采样点的极限分片也不改变结果。
-func _test_artillery_search_matches_legacy() -> void:
+func _test_artillery_search_clearance() -> void:
 	var cases: Array = []
 	for z in ZoneData.ZONES:
 		var center: Vector2 = z["center"]
@@ -474,7 +474,6 @@ func _test_artillery_search_matches_legacy() -> void:
 	var reduced_plans := 0
 	var max_slices := 0
 	for case in cases:
-		var legacy := _legacy_artillery_plan(case[0], case[1], case[2], case[3])
 		var whole = ZoneAtmosphereCombat.ArtilleryPlanSearch.new(case[0], case[1], case[2], case[3])
 		whole.step(-1)
 		var sliced = ZoneAtmosphereCombat.ArtilleryPlanSearch.new(case[0], case[1], case[2], case[3])
@@ -483,17 +482,25 @@ func _test_artillery_search_matches_legacy() -> void:
 			sliced.step(0)
 			slices += 1
 		max_slices = maxi(max_slices, slices)
-		var legacy_plan: Dictionary = legacy[0]
-		if not _artillery_plans_equal(legacy_plan, whole.plan) \
-				or not _artillery_plans_equal(legacy_plan, sliced.plan) \
-				or int(legacy[1]) != int(whole.rng.state) or int(legacy[1]) != int(sliced.rng.state):
+		var checked_plan: Dictionary = whole.plan
+		if not _artillery_plans_equal(checked_plan, sliced.plan) \
+				or int(whole.rng.state) != int(sliced.rng.state):
 			mismatches += 1
-		if legacy_plan.is_empty():
+		var route_clear := true
+		for track: Dictionary in whole.plan.get("tracks", []):
+			var axis: Vector2 = track.axis
+			var lateral := Vector2(-axis.y, axis.x)
+			for phase_index in 1440:
+				var phase := TAU * (float(phase_index) + 0.37) / 1440.0
+				var point: Vector2 = track.center + axis * cos(phase) * float(track.half_length) + lateral * sin(phase) * float(track.half_width)
+				route_clear = route_clear and MapGeography.is_ground_footprint_clear(point)
+		_check(route_clear, "SPG continuous patrol avoids actual buildings at independent phases")
+		if checked_plan.is_empty():
 			empty_plans += 1
-		elif (legacy_plan["tracks"] as Array).size() < ZoneAtmosphereCombat.ARTILLERY_COUNT:
+		elif (checked_plan["tracks"] as Array).size() < ZoneAtmosphereCombat.ARTILLERY_COUNT:
 			reduced_plans += 1
 	_check(mismatches == 0 and cases.size() > ZoneData.ZONES.size(),
-		"SPG 阵位分片搜索与原穷举逐值一致（%d 例，失配 %d，最多 %d 片）" % [
+		"SPG 建筑避让搜索整次与分片逐值一致（%d 例，失配 %d，最多 %d 片）" % [
 			cases.size(), mismatches, max_slices])
 	_check(water != Vector2.INF and empty_plans >= 1,
 		"全水面战区逐档降级到空方案的路径同样一致（空方案 %d 例，缩编 %d 例）" % [
@@ -566,92 +573,6 @@ func _artillery_plans_equal(a: Dictionary, b: Dictionary) -> bool:
 		for key in ["center", "axis", "half_length", "half_width", "phase"]:
 			if ta[i][key] != tb[i][key]:
 				return false
-	return true
-
-
-## ── 原实现逐字副本（_spawn_artillery_group 的数量档循环 + _find_land_artillery_plan + _land_ellipse_valid）──
-func _legacy_artillery_plan(center: Vector2, radius: float, opposing_center: Vector2,
-		seed_value: int) -> Array:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = seed_value
-	for count in range(ZoneAtmosphereCombat.ARTILLERY_COUNT, 0, -1):
-		var plan := _legacy_find_land_artillery_plan(center, radius, opposing_center, count, rng)
-		if not plan.is_empty():
-			return [plan, rng.state]
-	return [{}, rng.state]
-
-
-func _legacy_find_land_artillery_plan(center: Vector2, radius: float, hostile_center: Vector2,
-		count: int, rng: RandomNumberGenerator) -> Dictionary:
-	var away := (center - hostile_center).normalized()
-	if away.length_squared() < 0.5:
-		away = Vector2.RIGHT
-	var base_angle := away.angle() + rng.randf_range(-ZoneAtmosphereCombat.ARTILLERY_ROUTE_ANGLE_JITTER_RAD,
-		ZoneAtmosphereCombat.ARTILLERY_ROUTE_ANGLE_JITTER_RAD)
-	var offset_radius := minf(radius * rng.randf_range(0.23, 0.34), 760.0)
-	var start_step := rng.randi_range(0, 15)
-	for ring_mult in [1.0, 0.65, 0.35, 0.0]:
-		for candidate in range(16):
-			var step := (start_step + candidate) % 16
-			var direction := Vector2.from_angle(base_angle + float(step) * TAU / 16.0)
-			var route_axis := Vector2(-direction.y, direction.x)
-			var lateral := Vector2(-route_axis.y, route_axis.x)
-			var base := center + direction * offset_radius * float(ring_mult)
-			var formation: StringName = ZoneAtmosphereCombat.ARTILLERY_FORMATIONS[
-				rng.randi_range(0, ZoneAtmosphereCombat.ARTILLERY_FORMATIONS.size() - 1)]
-			var spacing := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_SLOT_MIN_PX,
-				ZoneAtmosphereCombat.ARTILLERY_SLOT_MAX_PX)
-			var depth := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_DEPTH_MIN_PX,
-				ZoneAtmosphereCombat.ARTILLERY_DEPTH_MAX_PX)
-			var offsets := ZoneAtmosphereCombat.artillery_formation_offsets(formation, count, spacing, depth)
-			var group_phase := rng.randf_range(0.0, TAU)
-			var tracks: Array[Dictionary] = []
-			var starts: Array[Vector2] = []
-			var valid := true
-			for i in range(count):
-				var offset: Vector2 = offsets[i]
-				var track_center := base + route_axis * offset.x + lateral * offset.y \
-					+ route_axis * rng.randf_range(-ZoneAtmosphereCombat.ARTILLERY_JITTER_PX,
-						ZoneAtmosphereCombat.ARTILLERY_JITTER_PX) \
-					+ lateral * rng.randf_range(-ZoneAtmosphereCombat.ARTILLERY_JITTER_PX,
-						ZoneAtmosphereCombat.ARTILLERY_JITTER_PX)
-				var half_length := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_ROUTE_HALF_MIN_PX,
-					ZoneAtmosphereCombat.ARTILLERY_ROUTE_HALF_MAX_PX)
-				var half_width := rng.randf_range(ZoneAtmosphereCombat.ARTILLERY_ROUTE_WIDTH_MIN_PX,
-					ZoneAtmosphereCombat.ARTILLERY_ROUTE_WIDTH_MAX_PX)
-				var phase := fposmod(group_phase + float(i) * TAU / maxf(float(count), 1.0) \
-					+ rng.randf_range(-ZoneAtmosphereCombat.ARTILLERY_PHASE_JITTER_RAD,
-						ZoneAtmosphereCombat.ARTILLERY_PHASE_JITTER_RAD), TAU)
-				var start := track_center + route_axis * cos(phase) * half_length \
-					+ lateral * sin(phase) * half_width
-				if not _legacy_land_ellipse_valid(track_center, route_axis, center, radius,
-						half_length, half_width) or not ZoneAtmosphereCombat._point_clear_of_all(start, starts,
-						ZoneAtmosphereCombat.ARTILLERY_INITIAL_CLEARANCE_PX):
-					valid = false
-					break
-				starts.append(start)
-				tracks.append({
-					"center": track_center,
-					"axis": route_axis,
-					"half_length": half_length,
-					"half_width": half_width,
-					"phase": phase,
-				})
-			if valid:
-				return {"tracks": tracks, "formation": formation}
-	return {}
-
-
-func _legacy_land_ellipse_valid(origin: Vector2, route_axis: Vector2, zone_center: Vector2,
-		zone_radius: float, half_length: float, half_width: float) -> bool:
-	var lateral := Vector2(-route_axis.y, route_axis.x)
-	for i in range(16):
-		var phase := float(i) * TAU / 16.0
-		var pos := origin + route_axis * cos(phase) * half_length \
-			+ lateral * sin(phase) * half_width
-		if pos.distance_to(zone_center) > zone_radius * 0.9 \
-				or not MapGeography.is_ground_spawn_safe(pos):
-			return false
 	return true
 
 

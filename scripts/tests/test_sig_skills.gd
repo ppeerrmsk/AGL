@@ -108,8 +108,8 @@ func _test_offer_rules() -> void:
 	_check("等级三轴抽选不再追加专属第四槽",
 		not level_flow.contains("signature") and not mode_src.contains("_append_signature_offer"), "")
 	_check("机场规划站接入专属装备分支",
-		mode_src.contains("signature_chosen.connect(_on_settlement_signature)")
-		and mode_src.contains("func _on_settlement_signature"), "")
+		mode_src.contains("repair_chosen.connect(_on_settlement_repair)")
+		and mode_src.contains("func _on_settlement_repair"), "")
 
 	var gated := _find_upgrade("sig_su27")
 	_check("技能前置仍由效果层自然等待，不改变专属身份或机场展示",

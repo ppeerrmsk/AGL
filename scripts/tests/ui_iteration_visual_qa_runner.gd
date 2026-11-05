@@ -36,7 +36,7 @@ func _ready() -> void:
 	for failure in _failures:
 		push_error("[ui_iteration_visual] %s" % failure)
 	print("[ui_iteration_visual] captures=9 failures=%d" % _failures.size())
-	get_tree().quit(0 if _failures.is_empty() else 1)
+	AudioManager.request_quit(0 if _failures.is_empty() else 1)
 
 
 func _capture_scene(capture_id: String, scene_path: String) -> void:

@@ -10,12 +10,15 @@
 class_name MotherGooseShieldOverlay
 extends Node2D
 
+const DisplayPacing := preload("res://scripts/util/display_pacing.gd")
+
 var boss_unit: Aircraft = null
 var jam_shield: MotherGooseJamShield = null
 var _last_visible: bool = false
 
 
 func _ready() -> void:
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	z_index = -5  ## 圈画在飞机/UAV 图标下面，不挡视觉
 	z_as_relative = false
 
@@ -26,7 +29,7 @@ func _process(_delta: float) -> void:
 		queue_free()
 		return
 	# 同步位置到 boss（每帧）—— 即便 boss 在屏外，本节点位置仍正确
-	global_position = boss_unit.global_position
+	global_position = DisplayPacing.display_origin(boss_unit)
 	# 仅在 shield 可见 / 上一帧可见但本帧不可见 时 redraw（事件驱动，省 CPU）
 	var vis: bool = jam_shield != null and jam_shield.is_visible()
 	if vis or _last_visible:

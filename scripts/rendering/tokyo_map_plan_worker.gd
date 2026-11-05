@@ -5,7 +5,8 @@ const Planner := preload("res://scripts/rendering/tokyo_map_planner.gd")
 const MAX_REQUEST_BYTES := 2*1024*1024
 const MAX_SOURCE_VALUES := 16*1024*1024
 const MAX_REQUEST_VALUES := 256*1024
-const MAX_DEPTH := 32
+## 七档交织树最多21层，每层含Dictionary/Array；纯值检查仍有独立总量和请求字节上限。
+const MAX_DEPTH := 64
 var _planner: RefCounted
 var _test_planner: RefCounted
 var _generation := -1
@@ -17,6 +18,7 @@ var _completed := 0
 var _discarded := 0
 var _background_elapsed_usec := 0
 var _peak_background_usec := 0
+var _configure_stages: Dictionary={}
 
 
 func _init(planner_override: RefCounted = null) -> void:
@@ -26,11 +28,18 @@ func _init(planner_override: RefCounted = null) -> void:
 
 func configure(source: Dictionary, generation: int) -> bool:
 	close()
+	var started := Time.get_ticks_usec()
 	if generation<0 or source.is_empty() or not pure(source,MAX_SOURCE_VALUES): return false
+	_configure_stages={"pure":Time.get_ticks_usec()-started}
 	var planner: RefCounted=Planner.new() if _test_planner==null else _test_planner
 	if planner is Resource or not planner.has_method("configure") or not planner.has_method("plan"): return false
 	# 规划器独占快照，后续调用者修改原容器不能影响在途工作。
-	if not bool(planner.configure(source.duplicate(true))): return false
+	started=Time.get_ticks_usec()
+	var snapshot := source.duplicate(true)
+	_configure_stages["copy"]=Time.get_ticks_usec()-started
+	started=Time.get_ticks_usec()
+	if not bool(planner.configure(snapshot)): return false
+	_configure_stages["planner"]=Time.get_ticks_usec()-started
 	_planner=planner
 	_generation=generation
 	return true
@@ -73,13 +82,15 @@ func take(expected_generation: int) -> Dictionary:
 	return result
 
 
-func close() -> void:
+func close(retired: Variant = null) -> void:
 	# 只在退出/换源生命周期等待，保证规划器及其快照不在后台使用期间释放。
 	if _task>=0:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task=-1
 		_account_completion()
 		_discarded+=1
+	if retired is Array and _planner!=null and _planner.has_method("retirement_data"):
+		retired.append_array(_planner.retirement_data())
 	_job={}
 	_planner=null
 	_generation=-1
@@ -87,6 +98,7 @@ func close() -> void:
 
 func summary() -> Dictionary:
 	return {"generation":_generation,"sequence":_sequence,"busy":busy(),"ready":ready(),
+		"configure_stages_usec":_configure_stages,
 		"submitted":_submitted,"completed":_completed,"discarded":_discarded,
 		"background_elapsed_usec":_background_elapsed_usec,"peak_background_usec":_peak_background_usec}
 
@@ -111,18 +123,23 @@ static func _run(planner: RefCounted, job: Dictionary) -> void:
 
 static func pure(value: Variant, maximum_values: int = MAX_SOURCE_VALUES) -> bool:
 	if maximum_values<=0: return false
-	return _pure(value,0,{"remaining":maximum_values})
+	var budget: Array[int]=[maximum_values]
+	return _pure(value,0,budget)
 
 
-static func _pure(value: Variant, depth: int, budget: Dictionary) -> bool:
-	budget.remaining=int(budget.remaining)-1
-	if depth>MAX_DEPTH or int(budget.remaining)<0 or typeof(value) in [TYPE_OBJECT,TYPE_CALLABLE,TYPE_SIGNAL,TYPE_RID]: return false
+static func _pure(value: Variant, depth: int, budget: Array[int]) -> bool:
+	budget[0]-=1
+	if depth>MAX_DEPTH or budget[0]<0 or typeof(value) in [TYPE_OBJECT,TYPE_CALLABLE,TYPE_SIGNAL,TYPE_RID]: return false
 	if value is Dictionary:
-		if value.size()>int(budget.remaining)/2: return false
+		if value.size()>budget[0]/2: return false
 		for key: Variant in value:
 			if not _pure(key,depth+1,budget) or not _pure(value[key],depth+1,budget): return false
 	elif value is Array:
-		if value.size()>int(budget.remaining): return false
+		if value.size()>budget[0]: return false
 		for item: Variant in value:
 			if not _pure(item,depth+1,budget): return false
+	elif value is PackedStringArray:
+		# 类型保证元素没有 Object；仍逐元素计入总量上限，不能用打包容器绕过请求门。
+		budget[0]-=value.size()
+		if budget[0]<0: return false
 	return true

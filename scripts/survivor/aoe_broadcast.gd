@@ -59,6 +59,8 @@ static func apply_status_in_radius(
 		u.apply_status(status_id, duration)
 		hit_count += 1
 		hit_positions.append(u.global_position)
+		if status_id == StatusEffects.JAM and source is Aircraft:
+			SkillHooks.on_jam_target_hit(source as Aircraft, u)
 		# fear_chills 联动：玩家施加的 FEAR 真正生效时，同步附带 SLOW（同时长）。
 		# 这里集中处理三条 AOE FEAR 入口（skill_hooks gun_kill / head_on / survivor_mode
 		# 凝视压迫），与单体路径 survivor_spawner._apply_player_fear 行为对齐。

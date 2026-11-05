@@ -43,7 +43,7 @@ func _ready() -> void:
 		ac.queue_redraw()
 		if ac.flare_visual_burst_emitted != 10 or ac._flare_particles.size() != 10:
 			push_error("flare visual setup incomplete for %s" % ac.callsign)
-			get_tree().quit(1)
+			AudioManager.request_quit(1)
 			return
 
 	for _frame in range(4):
@@ -53,7 +53,7 @@ func _ready() -> void:
 	var error := get_viewport().get_texture().get_image().save_png(output)
 	print("[flare_visual] player=%d enemy=%d screenshot=%s err=%d" % [
 		player._flare_particles.size(), enemy._flare_particles.size(), output, error])
-	get_tree().quit(0 if error == OK else 1)
+	AudioManager.request_quit(0 if error == OK else 1)
 
 
 func _make_aircraft(team: int, pos: Vector2, heading: float, label_text: String) -> Aircraft:

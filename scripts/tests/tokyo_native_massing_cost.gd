@@ -46,8 +46,11 @@ static func run(input: Dictionary) -> int:
 				tree_entries[entry.path]={"entry":entry,"configuration":configuration}
 				var children: Array=[]
 				for child: Dictionary in entry.get("children",[]): children.append(child.path)
+				var boxes: Array=[]
+				for bounds: AABB in entry.boxes:
+					boxes.append([bounds.position.x,bounds.position.y,bounds.position.z,bounds.size.x,bounds.size.y,bounds.size.z])
 				tree_inventory[entry.path]={"configuration":configuration,"triangles":entry.triangles,
-					"children":children,"ground_bound":native.ground.get("rows",{}).has(entry.path)}
+					"children":children,"boxes":boxes,"bytes":entry.bytes,"ground_bound":native.ground.get("rows",{}).has(entry.path)}
 	var unique_keys: Dictionary={}
 	for key: Variant in explicit_keys:
 		if not key is String or not tree_entries.has(key) or unique_keys.has(key): return 1
@@ -83,6 +86,12 @@ static func run(input: Dictionary) -> int:
 			rows.append({"pose":pose,"configuration":configuration,"within_budget":cut.get("within_budget",false),
 				"qualified":preload("res://scripts/rendering/tokyo_hlod_handoff.gd").native_qualified(cut,pose[2]),
 				"triangles":cut.get("triangles",0),"layer_triangles":layers,"bytes":cut.get("bytes",0),"stream_bytes":stream_bytes,"pages":cut.get("active",0),"ground_images":cut.get("ground_images",PackedStringArray()).size()})
+			if input.get("include_components",false):
+				var components: Dictionary={}
+				for key: String in cut.keys: components.merge(native.pages[key].components)
+				rows[-1]["keys"]=cut.keys
+				rows[-1]["components"]=components
+			if input.get("exact_visible_count",false): rows[-1]["exact_visible_count"]=_visible_triangle_counts(native,cut,pose)
 	# 去重物理组件的常驻成本；只读描述符，不加载GPU资源，不把压缩磁盘大小当显存。
 	var physical: Dictionary={}
 	for page: Dictionary in native.pages.values():
@@ -154,6 +163,35 @@ static func _export_layer(native: RefCounted, entry: Dictionary, configuration: 
 		"bounds":[box.position.x,box.position.z,box.end.x,box.end.z],"height_range":[box.position.y,box.end.y],
 		"components":page_row.components,"configuration":configuration,"layer":kind}
 	return true
+
+
+static func _visible_triangle_counts(native: RefCounted, cut: Dictionary, pose: Array) -> Array[int]:
+	# 离线下界诊断：逐原三角投影，不能由整块包围盒成本推断实际屏内几何已超预算。
+	var projection := preload("res://scripts/experiments/volume_projection.gd")
+	var canvas := Transform2D.IDENTITY.scaled(Vector2.ONE*float(pose[2]))
+	canvas.origin=Vector2(800,450)-canvas*Vector2(pose[0],pose[1])
+	var ray := projection.ground_basis(canvas,deg_to_rad(38)).inverse()*projection.camera_basis(canvas,deg_to_rad(38)).z
+	var roof := -Vector2(ray.x,ray.z)/ray.y
+	var counts: Array[int]=[0,0,0]
+	for entry: Dictionary in cut.entries:
+		var row: Dictionary=native.pages[entry.path]
+		var meshes := preload("res://scripts/tests/build_tokyo_boundary_tree.gd").meshes(row,row.components)
+		for kind in 3:
+			if not entry.mask[kind]: continue
+			var mesh: ArrayMesh=meshes[kind]
+			for surface in mesh.get_surface_count():
+				var arrays := mesh.surface_get_arrays(surface)
+				var positions: PackedVector3Array=arrays[Mesh.ARRAY_VERTEX]
+				var indices: PackedInt32Array=arrays[Mesh.ARRAY_INDEX]
+				var count := indices.size() if not indices.is_empty() else positions.size()
+				for start in range(0,count,3):
+					var polygon := PackedVector2Array()
+					for corner in 3:
+						var v: Vector3=positions[indices[start+corner] if not indices.is_empty() else start+corner]
+						polygon.append(canvas*(Vector2(v.x,v.z)+roof*v.y))
+					var clipped := Geometry2D.intersect_polygons(polygon,PackedVector2Array([Vector2.ZERO,Vector2(1600,0),Vector2(1600,900),Vector2(0,900)]))
+					if not clipped.is_empty(): counts[kind]+=1
+	return counts
 
 
 static func _leaf_cut(native: RefCounted, pose: Array) -> Dictionary:

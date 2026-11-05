@@ -204,4 +204,4 @@ func _ready() -> void:
 	bottom_bar.queue_free()
 	background.queue_free()
 	await get_tree().process_frame
-	get_tree().quit(0 if err == OK and hidden_err == OK and hint_err == OK else 1)
+	AudioManager.request_quit(0 if err == OK and hidden_err == OK and hint_err == OK else 1)
